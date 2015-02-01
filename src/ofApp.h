@@ -8,6 +8,8 @@
 #include "MSAInterpolator.h"
 #include "ofxDelaunay.h"
 
+#define LIVE_INPUT
+
 typedef vector< vector<cv::Point> > ContourVector;
 
 struct tessel {
@@ -53,8 +55,11 @@ class ofApp : public ofBaseApp{
         bool drawHipster;
     
         ofxPanel gui;
-    
+#ifdef LIVE_INPUT
         ofVideoGrabber cam;
+#else
+        ofVideoPlayer player;
+#endif
         ofxCv::ContourFinder finder;
         vector<tessel> mosaic;
 
@@ -65,6 +70,7 @@ class ofApp : public ofBaseApp{
         ofParameter<int> threshold2;
         ofParameter<bool> gradient;
         ofParameter<int> max_it;
+    
     
         //interpolation parameters
         ofParameter<int>  resolution;

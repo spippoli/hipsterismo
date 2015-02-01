@@ -1,6 +1,6 @@
 #include "ofApp.h"
 
-cv::Mat flipped, flippedBW, canny;
+cv::Mat source,sourceBW, canny;
 msa::Interpolator2D interpol;
 
 
@@ -20,29 +20,37 @@ void ofApp::setup(){
     gui.add(max_it.set("blur iteration",9,1,31));
     gui.add(resolution.set("interpolation resolution",1000,2,10000));
     gui.setTextColor(ofColor(255,255,255));
-    
+    gui.loadFromFile("settings.xml");
+#ifdef LIVE_INPUT
     cam.initGrabber(320, 240);
+#else
+    player.loadMovie("fingers.mov");
+    player.play();
+#endif
+    
     finder.setMinArea(2);
     finder.setMaxArea(400000);
     finder.setThreshold(128);
     finder.setFindHoles(true);
-    
-    glEnable(GL_DEPTH_TEST);
-    
-    //ofSetFrameRate(5);
+
 }
 
 //--------------------------------------------------------------
 void ofApp::update(){
+#ifdef LIVE_INPUT
     cam.update();
     if (cam.isFrameNew()) {
-
-        cv::flip(ofxCv::toCv(cam), flipped, 1);
-        ofxCv::cvtColor(flipped, flippedBW, CV_BGR2GRAY);
-        for(int i = 1;i < max_it; i = i+2)
-        ofxCv::GaussianBlur(flippedBW, flippedBW, cv::Size_<int>(i,i), 1);
-        ofxCv::Canny(flippedBW, canny, threshold1, threshold2,3,gradient);
+        cv::flip(ofxCv::toCv(cam), source, 1);
+#else
+    player.update();
+    if (player.isFrameNew()) {
+        source = ofxCv::toCv(player);
+#endif
         
+        ofxCv::cvtColor(source, sourceBW, CV_BGR2GRAY);
+        for(int i = 1;i < max_it; i = i+2)
+        ofxCv::GaussianBlur(sourceBW, sourceBW, cv::Size_<int>(i,i), 1);
+        ofxCv::Canny(sourceBW, canny, threshold1, threshold2,3,gradient);
         finder.findContours(canny);
         ContourVector contours = finder.getContours();
         interpol.clear();
@@ -57,25 +65,22 @@ void ofApp::update(){
             delaunay.addPoint(interpol.sampleAt(step));
         }
         delaunay.triangulate();
+
     }
 
+    
 }
 
 //--------------------------------------------------------------
 void ofApp::draw(){
+    ofBackground(0,0,0);
 
-    if (drawGui) {
-        ofPushStyle();
-        ofPushMatrix();
-        gui.draw();
-        ofPopMatrix();
-        ofPopStyle();
-    }
+
     
     if(drawContour) {
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
+        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
         ofNoFill();
         ofSetColor(255, 255, 255);
         finder.draw();
@@ -86,7 +91,7 @@ void ofApp::draw(){
     if (drawDelaunay) {
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
+        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
         ofNoFill();
         ofSetColor(180, 180, 180);
         delaunay.draw();
@@ -105,9 +110,9 @@ void ofApp::draw(){
             ofPoint center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2))/3;
             int r,g,b = 0;
             if (center.x >= 0 && center.y >= 0 && center.z >= 0) {
-                r = flipped.at<cv::Vec3b>(center.y,center.x)[0];
-                g = flipped.at<cv::Vec3b>(center.y,center.x)[1];
-                b = flipped.at<cv::Vec3b>(center.y,center.x)[2];
+                r = source.at<cv::Vec3b>(center.y,center.x)[0];
+                g = source.at<cv::Vec3b>(center.y,center.x)[1];
+                b = source.at<cv::Vec3b>(center.y,center.x)[2];
             }
             ofColor faceColor = ofColor(r, g, b);
             mesh.addVertex(face.getVertex(0));
@@ -123,7 +128,7 @@ void ofApp::draw(){
         
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
+        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
         //ofEnableAlphaBlending();
         //ofEnableBlendMode(OF_BLEN);
         ofSetColor(255, 255, 255);
@@ -136,12 +141,24 @@ void ofApp::draw(){
     else {
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
+        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
         ofSetColor(255, 255, 255);
-        ofxCv::drawMat(flipped, 0, 0);
+        ofxCv::drawMat(source, 0, 0);
         ofPopMatrix();
         ofPopStyle();
         
+    }
+    
+    if (drawGui) {
+        ofPushStyle();
+        ofPushMatrix();
+        glDisable(GL_DEPTH_TEST);
+        gui.draw();
+ 
+        ofDrawBitmapString(ofToString(ofGetFrameRate()), 10,ofGetWindowHeight()-30);
+        glEnable(GL_DEPTH_TEST);
+        ofPopMatrix();
+        ofPopStyle();
     }
 }
 
@@ -172,6 +189,16 @@ void ofApp::keyPressed(int key){
         case 'h':
         {
             drawHipster = !drawHipster;
+        }
+            break;
+        case 'p':
+        {
+            ofImage snapshot;
+    
+            snapshot.allocate(ofGetWindowWidth(), ofGetWindowHeight(), OF_IMAGE_COLOR);
+            snapshot.grabScreen(0,0,ofGetWindowWidth(), ofGetWindowHeight());
+            snapshot.saveImage("screenshot.png");
+
         }
             break;
         default:

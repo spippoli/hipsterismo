@@ -1,7 +1,7 @@
 <panel>
 	<panel/>
 	<first_threshold>0</first_threshold>
-	<second_threshold>22</second_threshold>
-	<blur_iteration>5</blur_iteration>
-	<interpolation_resolution>7000</interpolation_resolution>
+	<second_threshold>38</second_threshold>
+	<blur_iteration>6</blur_iteration>
+	<interpolation_resolution>2201</interpolation_resolution>
 </panel>
