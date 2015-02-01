@@ -11,22 +11,25 @@ void ofApp::setup(){
     fullscreen = false;
     drawGui = false;
     drawContour = false;
-    drawDelaunay = drawHipster = true;
-    
+    drawDelaunay = false;
+    drawHipster = true;
+    ofSetVerticalSync(true);
     gui.setup("panel","settings.xml",0,0);
     gui.add(threshold1.set("first threshold",0,0,400));
-    gui.add(threshold2.set("second threshold",38,0,400));
-    gui.add(max_it.set("blur iteration",6,1,31));
-    gui.add(resolution.set("interpolation resolution",0.1,0.001,0.6));
+    gui.add(threshold2.set("second threshold",20,0,400));
+    gui.add(max_it.set("blur iteration",9,1,31));
+    gui.add(resolution.set("interpolation resolution",1000,2,10000));
     gui.setTextColor(ofColor(255,255,255));
     
-    cam.initGrabber(640 , 480);
+    cam.initGrabber(320, 240);
     finder.setMinArea(2);
     finder.setMaxArea(400000);
     finder.setThreshold(128);
     finder.setFindHoles(true);
     
     glEnable(GL_DEPTH_TEST);
+    
+    //ofSetFrameRate(5);
 }
 
 //--------------------------------------------------------------
@@ -50,7 +53,7 @@ void ofApp::update(){
             }
         }
         
-        for (float step = 0.0; step < 1.0 ; step+=resolution) {
+        for (float step = 0.0; step < 1.0 ; step+=1/(float)resolution) {
             delaunay.addPoint(interpol.sampleAt(step));
         }
         delaunay.triangulate();
@@ -72,6 +75,7 @@ void ofApp::draw(){
     if(drawContour) {
         ofPushStyle();
         ofPushMatrix();
+        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
         ofNoFill();
         ofSetColor(255, 255, 255);
         finder.draw();
@@ -82,8 +86,9 @@ void ofApp::draw(){
     if (drawDelaunay) {
         ofPushStyle();
         ofPushMatrix();
+        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
         ofNoFill();
-        ofSetColor(0, 180, 130);
+        ofSetColor(180, 180, 180);
         delaunay.draw();
         ofPopMatrix();
         ofPopStyle();
@@ -98,7 +103,13 @@ void ofApp::draw(){
         {
             ofMeshFace face = faces[i];
             ofPoint center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2))/3;
-            ofColor faceColor = ofColor(flipped.at<cv::Vec3b>(center.y,center.x)[0], flipped.at<cv::Vec3b>(center.y,center.x)[1], flipped.at<cv::Vec3b>(center.y,center.x)[2]);
+            int r,g,b = 0;
+            if (center.x >= 0 && center.y >= 0 && center.z >= 0) {
+                r = flipped.at<cv::Vec3b>(center.y,center.x)[0];
+                g = flipped.at<cv::Vec3b>(center.y,center.x)[1];
+                b = flipped.at<cv::Vec3b>(center.y,center.x)[2];
+            }
+            ofColor faceColor = ofColor(r, g, b);
             mesh.addVertex(face.getVertex(0));
             mesh.addTexCoord(face.getVertex(0));
             mesh.addColor(faceColor);
@@ -112,6 +123,7 @@ void ofApp::draw(){
         
         ofPushStyle();
         ofPushMatrix();
+        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
         //ofEnableAlphaBlending();
         //ofEnableBlendMode(OF_BLEN);
         ofSetColor(255, 255, 255);
@@ -124,6 +136,7 @@ void ofApp::draw(){
     else {
         ofPushStyle();
         ofPushMatrix();
+        ofScale(ofGetWindowWidth()/(float)cam.width, ofGetWindowHeight()/(float)cam.height);
         ofSetColor(255, 255, 255);
         ofxCv::drawMat(flipped, 0, 0);
         ofPopMatrix();

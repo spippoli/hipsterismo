@@ -67,7 +67,7 @@ class ofApp : public ofBaseApp{
         ofParameter<int> max_it;
     
         //interpolation parameters
-        ofParameter<float>  resolution;
+        ofParameter<int>  resolution;
     
     
 
