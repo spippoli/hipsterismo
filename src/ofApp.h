@@ -60,23 +60,22 @@ class ofApp : public ofBaseApp{
 #else
         ofVideoPlayer player;
 #endif
+//        ofQtVid
         ofxCv::ContourFinder finder;
         vector<tessel> mosaic;
 
         ofxDelaunay delaunay;
+        ofMesh mesh;
     
         //canny parameters
         ofParameter<int> threshold1;
         ofParameter<int> threshold2;
         ofParameter<bool> gradient;
         ofParameter<int> max_it;
-    
-    
+        
         //interpolation parameters
         ofParameter<int>  resolution;
     
     
 
 };
-
-//inline ofPoint getCenter(const ITRIANGLE & tri) { return ofPoint( tri.p )

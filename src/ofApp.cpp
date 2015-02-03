@@ -13,7 +13,11 @@ void ofApp::setup(){
     drawContour = false;
     drawDelaunay = false;
     drawHipster = true;
+    
     ofSetVerticalSync(true);
+//    ofEnableAlphaBlending();
+    ofEnableAntiAliasing();
+    
     gui.setup("panel","settings.xml",0,0);
     gui.add(threshold1.set("first threshold",0,0,400));
     gui.add(threshold2.set("second threshold",20,0,400));
@@ -22,6 +26,7 @@ void ofApp::setup(){
     gui.setTextColor(ofColor(255,255,255));
     gui.loadFromFile("settings.xml");
 #ifdef LIVE_INPUT
+    cam.setDeviceID(0);
     cam.initGrabber(320, 240);
 #else
     player.loadMovie("fingers.mov");
@@ -33,6 +38,8 @@ void ofApp::setup(){
     finder.setThreshold(128);
     finder.setFindHoles(true);
 
+    mesh.setMode(OF_PRIMITIVE_TRIANGLES);
+    
 }
 
 //--------------------------------------------------------------
@@ -65,6 +72,34 @@ void ofApp::update(){
             delaunay.addPoint(interpol.sampleAt(step));
         }
         delaunay.triangulate();
+        
+        mesh.clear();
+ 
+        const vector<ofMeshFace> faces = delaunay.triangleMesh.getUniqueFaces();
+        for (int i = 0; i < faces.size(); i++)
+        {
+            ofMeshFace face = faces[i];
+            ofPoint center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2))/3;
+            int r,g,b,a = 0;
+            if (center.x >= 0 && center.y >= 0 && center.z >= 0) {
+                r = source.at<cv::Vec3b>(center.y,center.x)[0];
+                g = source.at<cv::Vec3b>(center.y,center.x)[1];
+                b = source.at<cv::Vec3b>(center.y,center.x)[2];
+//                a = (r+g+b)/3;
+            }
+
+            ofColor faceColor = ofColor(r, g, b);            
+//            ofColor faceColor = ofColor(r, g, b,a);
+            mesh.addVertex(face.getVertex(0));
+            mesh.addTexCoord(face.getVertex(0));
+            mesh.addColor(faceColor);
+            mesh.addVertex(face.getVertex(1));
+            mesh.addTexCoord(face.getVertex(1));
+            mesh.addColor(faceColor);
+            mesh.addVertex(face.getVertex(2));
+            mesh.addTexCoord(face.getVertex(2));
+            mesh.addColor(faceColor);
+        }
 
     }
 
@@ -75,6 +110,28 @@ void ofApp::update(){
 void ofApp::draw(){
     ofBackground(0,0,0);
 
+    if(drawHipster) {
+        
+        
+        ofPushStyle();
+        ofPushMatrix();
+        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
+        ofSetColor(255, 255, 255);
+        mesh.draw();
+        ofPopMatrix();
+        ofPopStyle();
+        
+    }
+    else {
+        ofPushStyle();
+        ofPushMatrix();
+        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
+        ofSetColor(255, 255, 255);
+        ofxCv::drawMat(source, 0, 0);
+        ofPopMatrix();
+        ofPopStyle();
+        
+    }
 
     
     if(drawContour) {
@@ -98,65 +155,19 @@ void ofApp::draw(){
         ofPopMatrix();
         ofPopStyle();
     }
+
+
     
-    if(drawHipster) {
-        
-        ofMesh mesh;
-        mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-        const vector<ofMeshFace> faces = delaunay.triangleMesh.getUniqueFaces();
-        for (int i = 0; i < faces.size(); i++)
-        {
-            ofMeshFace face = faces[i];
-            ofPoint center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2))/3;
-            int r,g,b = 0;
-            if (center.x >= 0 && center.y >= 0 && center.z >= 0) {
-                r = source.at<cv::Vec3b>(center.y,center.x)[0];
-                g = source.at<cv::Vec3b>(center.y,center.x)[1];
-                b = source.at<cv::Vec3b>(center.y,center.x)[2];
-            }
-            ofColor faceColor = ofColor(r, g, b);
-            mesh.addVertex(face.getVertex(0));
-            mesh.addTexCoord(face.getVertex(0));
-            mesh.addColor(faceColor);
-                             mesh.addVertex(face.getVertex(1));
-                             mesh.addTexCoord(face.getVertex(1));
-                             mesh.addColor(faceColor);
-                                              mesh.addVertex(face.getVertex(2));
-                                              mesh.addTexCoord(face.getVertex(2));
-                                              mesh.addColor(faceColor);
-        }
-        
-        ofPushStyle();
-        ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
-        //ofEnableAlphaBlending();
-        //ofEnableBlendMode(OF_BLEN);
-        ofSetColor(255, 255, 255);
-        mesh.draw();
-        ofPopMatrix();
-        ofPopStyle();
-        
-    }
-    
-    else {
-        ofPushStyle();
-        ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
-        ofSetColor(255, 255, 255);
-        ofxCv::drawMat(source, 0, 0);
-        ofPopMatrix();
-        ofPopStyle();
-        
-    }
+
+
     
     if (drawGui) {
         ofPushStyle();
         ofPushMatrix();
         glDisable(GL_DEPTH_TEST);
         gui.draw();
- 
-        ofDrawBitmapString(ofToString(ofGetFrameRate()), 10,ofGetWindowHeight()-30);
         glEnable(GL_DEPTH_TEST);
+        ofDrawBitmapString(ofToString(ofGetFrameRate()), 10,ofGetWindowHeight()-30);
         ofPopMatrix();
         ofPopStyle();
     }
@@ -194,11 +205,9 @@ void ofApp::keyPressed(int key){
         case 'p':
         {
             ofImage snapshot;
-    
             snapshot.allocate(ofGetWindowWidth(), ofGetWindowHeight(), OF_IMAGE_COLOR);
             snapshot.grabScreen(0,0,ofGetWindowWidth(), ofGetWindowHeight());
             snapshot.saveImage("screenshot.png");
-
         }
             break;
         default:
