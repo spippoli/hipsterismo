@@ -35,19 +35,8 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
     
-    bool geometric_center(const vector<ofPoint> &triangle, ofPoint &baricenter) {
-        if(triangle.size() != 3)
-            return false;
-        else {
-            baricenter.x = (triangle[0].x+triangle[1].x+triangle[2].x)/3;
-            baricenter.y = (triangle[0].y+triangle[1].y+triangle[2].y)/3;
-            baricenter.z = (triangle[0].z+triangle[1].z+triangle[2].z)/3;
-            
-            return true;
-        }
-        
-    }
-    
+
+        //views stuff
         bool fullscreen;
         bool drawGui;
         bool drawContour;
@@ -60,10 +49,9 @@ class ofApp : public ofBaseApp{
 #else
         ofVideoPlayer player;
 #endif
-//        ofQtVid
-        ofxCv::ContourFinder finder;
-        vector<tessel> mosaic;
 
+
+        ofxCv::ContourFinder finder;
         ofxDelaunay delaunay;
         ofMesh mesh;
     

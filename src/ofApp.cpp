@@ -44,6 +44,7 @@ void ofApp::setup(){
 
 //--------------------------------------------------------------
 void ofApp::update(){
+    
 #ifdef LIVE_INPUT
     cam.update();
     if (cam.isFrameNew()) {
@@ -54,12 +55,13 @@ void ofApp::update(){
         source = ofxCv::toCv(player);
 #endif
         
-        ofxCv::cvtColor(source, sourceBW, CV_BGR2GRAY);
-        for(int i = 1;i < max_it; i = i+2)
+        
+        ofxCv::cvtColor(source, sourceBW, CV_BGR2GRAY); //make BW copy for canny edge detection
+        for(int i = 1;i < max_it; i = i+2) //blur loop
         ofxCv::GaussianBlur(sourceBW, sourceBW, cv::Size_<int>(i,i), 1);
-        ofxCv::Canny(sourceBW, canny, threshold1, threshold2,3,gradient);
+        ofxCv::Canny(sourceBW, canny, threshold1, threshold2,3,gradient); //edge detection
         finder.findContours(canny);
-        ContourVector contours = finder.getContours();
+        ContourVector contours = finder.getContours(); //populate delaunay object with points interpolated from detected edges
         interpol.clear();
         delaunay.reset();
         for (ContourVector::iterator contour = contours.begin(); contour != contours.end(); contour++) {
@@ -67,16 +69,13 @@ void ofApp::update(){
                 interpol.push_back(ofxCv::toOf(*point));
             }
         }
-        
         for (float step = 0.0; step < 1.0 ; step+=1/(float)resolution) {
             delaunay.addPoint(interpol.sampleAt(step));
         }
-        delaunay.triangulate();
-        
+        delaunay.triangulate(); // create mesh
         mesh.clear();
- 
         const vector<ofMeshFace> faces = delaunay.triangleMesh.getUniqueFaces();
-        for (int i = 0; i < faces.size(); i++)
+        for (int i = 0; i < faces.size(); i++) //for each face of the triangulation add a triangle to the mesh and set the color from source frame  
         {
             ofMeshFace face = faces[i];
             ofPoint center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2))/3;
