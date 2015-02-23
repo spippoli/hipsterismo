@@ -8,7 +8,7 @@
 #include "MSAInterpolator.h"
 #include "ofxDelaunay.h"
 
-#define LIVE_INPUT
+//#define LIVE_INPUT
 
 typedef vector< vector<cv::Point> > ContourVector;
 
@@ -60,7 +60,6 @@ class ofApp : public ofBaseApp{
 #else
         ofVideoPlayer player;
 #endif
-//        ofQtVid
         ofxCv::ContourFinder finder;
         vector<tessel> mosaic;
 
