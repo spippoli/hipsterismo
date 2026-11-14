@@ -1,0 +1,41 @@
+# i7-11370H, g++ 15.2.0 -std=c++20 -O3 -DNDEBUG, OpenCV 4.10.0, single thread, median of 15 reps, ms.
+# K0=5 (ward/small init), KAPPA=2 (fh), STEINER=centroid unless noted, BLUR sigma 0.8.
+# Columns: lab = BGR->Lab + blur; graph = edges + bucket sort + FH; merge = RAG merge; trace = chains;
+# simpl = DP + crossing repair; cdt = CDT incl. Steiner rounds; colour = per-Tessel pixel mean + checks.
+# init = regions before merge; Patch = final Patches; chain = shared chains; segs = constraint segments;
+# fixed = chains re-simplified by the crossing repair; stnr = Steiner points; unc/mul = pixels covered 0 / >1 times;
+# leak% = pixels whose Patch differs from their Tessel's majority Patch.
+
+## Run A: machine lightly loaded (load average ~2), these are the figures quoted in the doc
+fh        64  1024  1.5 |   0.78   6.26   0.00   0.88   0.70   2.07   1.83   12.70 |     50     50   301   1020     83   898    2    1761  76800    0    0   1.82
+fh       128  1024  1.5 |   0.79   6.22   0.00   0.84   0.43   2.94   1.72   12.98 |     26     26   189    698     71   627   11    1230  76800    0    0   1.43
+fh       256  1024  1.5 |   0.74   5.54   0.00   0.71   0.26   1.81   1.47   10.79 |     12     12   139    479     48   437   20     859  76800    0    0   0.84
+fh        64   256  1.5 |   0.84   6.65   0.00   0.93   0.75   4.49   1.99   15.79 |     50     50   301   1020     83   962   66    1889  76800    0    0   1.82
+ward      64  1024  1.5 |   0.81   6.16   3.89   0.93   0.91   3.87   2.11   19.08 |   1929     52   339   1213    124  1073    3    2113  76800    0    0   2.36
+
+## -O0 (OF Debug)
+fh        64  1024  1.5 |   0.84  66.44   0.00  11.51   3.84  13.05  11.74  107.54 |     50     50   301   1020     83   898    2    1761  76800    0    0   1.82
+fh       256  1024  1.5 |   0.98  74.60   0.00  11.99   1.57  13.21  12.21  114.60 |     12     12   139    479     48   437   20     859  76800    0    0   0.84
+
+## Run B: full matrix, machine more loaded (load average ~2.7), ~30-40% slower than run A
+fh        64  1024  1.5 |   1.11   9.36   0.00   1.31   1.06   3.09   2.73   18.74 |     50     50   301   1020     83   898    2    1761  76800    0    0   1.82
+fh       256  1024  1.5 |   1.10   8.71   0.00   1.11   0.40   2.80   2.27   16.44 |     12     12   139    479     48   437   20     859  76800    0    0   0.84
+ward      64  1024  1.5 |   1.12   8.63   5.63   1.37   1.33   5.65   2.97   26.75 |   1929     52   339   1213    124  1073    3    2113  76800    0    0   2.36
+       merges 1877, last merge: cost 20852.5, dE 21.56; repair rounds 4
+ward     256  1024  1.5 |   1.10   8.59   5.65   1.28   0.77   4.40   2.78   24.64 |   1929     32   214    932     83   852   10    1676  76800    0    0   1.79
+       merges 1897, last merge: cost 65358.3, dE 19.25; repair rounds 3
+small     64  1024  1.5 |   1.10   8.65   4.67   2.16   6.19   6.43   4.55   34.03 |   1929    530  2406   4239    473  3278    0    6416  76800    0    0   5.49
+       merges 1399, last merge: cost 432.7, dE 20.80; repair rounds 4
+small    256  1024  1.5 |   1.07   8.66   5.76   1.58   2.08   2.94   3.39   25.58 |   1929    127   630   1845    179  1592    0    3119  76800    0    0   3.26
+       merges 1802, last merge: cost 601.6, dE 24.53; repair rounds 4
+ward      64   256  1.5 |   1.17   8.84   5.68   1.41   1.35   8.01   3.15   29.77 |   1929     52   339   1213    124  1142   72    2251  76800    0    0   2.36
+       merges 1877, last merge: cost 20852.5, dE 21.56; repair rounds 4
+ward      64 100000  1.5 |   1.11   8.93   5.73   1.39   1.35   1.96   2.99   23.48 |   1929     52   339   1213    124  1070    0    2107  76800    0    0   2.36
+       merges 1877, last merge: cost 20852.5, dE 21.56; repair rounds 4
+RUPPERT
+ward      64  1024  1.5 |   0.95   7.24   4.87   1.15   1.14   6.12   3.43   25.15 |   1929     52   339   1213    124  2545 1475    5022  76800    0    0   2.23
+       merges 1877, last merge: cost 20852.5, dE 21.56; repair rounds 4
+K0=0
+ward      64  1024  1.5 |   0.81   3.71 141.58   0.87   0.40   3.05   1.89  152.20 |  74009     48   134    940      4   899    4    1763  76800    0    0   2.68
+       merges 73961, last merge: cost 24868.2, dE 21.38; repair rounds 2
+reference: ximgproc FH(0.8,300,64) 24.21 ms -> 41 Patches; SLICO(8px,10 it) 43.03 ms -> 1183; pyrMeanShiftFiltering(8,16) 126.71 ms
