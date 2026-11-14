@@ -1,6 +1,4 @@
 ofxCv
 ofxDelaunay
-ofxMSACore
-ofxMSAInterpolator
 ofxOpenCv
 ofxUnitTests
