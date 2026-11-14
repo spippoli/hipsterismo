@@ -13,7 +13,7 @@ The project must live at `<OF_ROOT>/apps/myApps/hipsterismo`, because the `Makef
 - Linux/macOS: `make` (or `make Debug` / `make Release`), then `make run`, or run the binary in `bin/` directly. The app loads assets from `bin/data/`.
 - IDE projects (Xcode, Visual Studio, VS Code) are not checked in, and `.gitignore` ignores them. Generate them with the openFrameworks projectGenerator: import this folder, and it reads `addons.make`.
 
-There are no tests and no linter.
+Tests for the Mosaic module live in `tests/`, a windowless OF app built with `ofxUnitTests`. Run them with `make -C tests && make -C tests run`; the process exit code is the number of failed tests. There is no way to run a single test; comment out calls in `run()` in `tests/src/main.cpp`. There is no linter.
 
 ### Addon dependencies
 
@@ -31,24 +31,22 @@ git clone https://github.com/memo/ofxMSAInterpolator.git
 
 The app targets openFrameworks 0.12.x on every platform OF supports. It was originally written for OF 0.8 on macOS and has been built and run on Linux (OpenCV 4, C++20).
 
-- `ofApp.h` wraps `#include "MSAInterpolator.h"` in a `#pragma GCC diagnostic` block, guarded by `__GNUC__` so it applies to GCC and Clang only. `InterpolatorT::sampleAt()` has no trailing return, and OF's `-Werror=return-type` would otherwise fail the build. OF adds that flag after the project flags, so it can't be overridden in `config.make`.
+- `src/mosaic/Mosaic.h` wraps `#include "MSAInterpolator.h"` in a `#pragma GCC diagnostic` block, guarded by `__GNUC__` so it applies to GCC and Clang only. `InterpolatorT::sampleAt()` has no trailing return, and OF's `-Werror=return-type` would otherwise fail the build. OF adds that flag after the project flags, so it can't be overridden in `config.make`.
 - ofxCv's `cvtColor`/`GaussianBlur` wrappers changed, so the app calls `cv::cvtColor` and `cv::GaussianBlur` directly.
 - Expect a lot of `-Wdeprecated-enum-enum-conversion` warnings from the OpenCV 4 headers under C++20. They are harmless.
 
 ## Architecture
 
-All the logic is in `src/ofApp.{h,cpp}`.
+Domain terms (Frame, Contour, Tessel, Mosaic) are defined in `GLOSSARY.md`.
 
-- **Input selection is compile-time.** Uncomment `#define LIVE_INPUT` in `ofApp.h` to switch from `ofVideoPlayer` (playing `fingers.mov`) to `ofVideoGrabber` (device 0, 320x240, mirrored horizontally). New input sources (such as still images) need to fit into the same `#ifdef` branches in `ofApp.h`, `setup()` and `update()`.
-- **Per-frame pipeline in `update()`** runs only when a new frame arrives:
-  1. Convert to grayscale, then apply repeated Gaussian blurs with odd kernel sizes `1, 3, …, < max_it`.
-  2. Run Canny with `threshold1`/`threshold2`, then `ofxCv::ContourFinder`.
-  3. Push every contour point into a global `msa::Interpolator2D`, then sample it `resolution` times uniformly in `[0,1)`. This decouples triangle density from contour point count.
-  4. Feed the samples to `ofxDelaunay`, triangulate, and rebuild `mesh` (`OF_PRIMITIVE_TRIANGLES`) with flat per-face colours sampled from `source` at each centroid.
-- **Globals:** the `cv::Mat`s (`source`, `sourceBW`, `canny`) and the interpolator are file-scope globals in `ofApp.cpp`, not members.
-- **Drawing:** `draw()` scales from source-image space (`source.cols` × `source.rows`) to the window size.
-- **GUI/parameters:** `ofxPanel` holds the `ofParameter`s and loads/saves them from `bin/data/settings.xml`. The XML tags are the parameter names with spaces replaced by underscores. The `gradient` parameter is declared but never added to the panel.
-- **Unused code:** the `tessel` struct and `geometric_center()` in `ofApp.h` are not used.
+- **`src/mosaic/` is the Mosaic module**, and all image processing lives there. `MosaicMaker::make(const ofPixels&)` turns a Frame into a `Mosaic`: the Tessels plus the Contours they were built from. `toMesh()` turns a Mosaic into a flat-coloured `ofMesh`. `make()` is a pure function of the Frame and the parameters; the object only keeps scratch buffers. Grayscale and RGBA Frames are converted to RGB, and an empty Frame or one without Contours gives an empty Mosaic. The tests project compiles this folder directly through `PROJECT_EXTERNAL_SOURCE_PATHS`, so keep the module self-contained in it.
+- **The pipeline inside `make()`:**
+  1. Convert to grayscale and blur repeatedly, with odd kernel sizes `1, 3, …, < blur iteration`.
+  2. Run Canny, then `ofxCv::ContourFinder`.
+  3. Concatenate all Contour points into one `msa::Interpolator2D` spline and sample it `resolution` times. The spline also bridges between Contours, which is part of the look. Samples are clamped to the Frame because the spline overshoots.
+  4. Run Delaunay, then colour each Tessel from the Frame pixel at its centroid.
+- **Parameters** are the `ofParameterGroup` in `MosaicMaker`. `ofApp` renames it to `panel` and builds the `ofxPanel` from it, so the XML in `bin/data/settings.xml` stays `<panel><first_threshold>…`. A tag's name is the parameter name with spaces replaced by underscores, so renaming a parameter breaks existing settings files.
+- **`ofApp`** only gets Frames, calls the Mosaic module, and draws. Input selection is compile-time: uncomment `#define LIVE_INPUT` in `ofApp.h` to switch from `ofVideoPlayer` (playing `fingers.mov`) to `ofVideoGrabber` (device 0, 320x240, mirrored horizontally). `draw()` scales Frame space (`frame.getWidth()` × `frame.getHeight()`) to the window. The contour overlay draws `mosaic.contours`, and the Delaunay overlay draws the Mosaic mesh as a wireframe.
 
 ### Keyboard controls
 
