@@ -43,23 +43,21 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
         return mosaic;
     }
 
+    // The spline overshoots past the Frame where it jumps between Contours;
+    // keep every sample inside so Tessels (and their colours) stay in the Frame.
+    const float maxX = rgb.getWidth() - 1;
+    const float maxY = rgb.getHeight() - 1;
     delaunay.reset();
     for (float step = 0.0; step < 1.0; step += 1 / (float)resolution) {
-        delaunay.addPoint(interpolator.sampleAt(step));
+        glm::vec2 sample = interpolator.sampleAt(step);
+        delaunay.addPoint(ofPoint(ofClamp(sample.x, 0, maxX), ofClamp(sample.y, 0, maxY)));
     }
     delaunay.triangulate();
 
     for (const ofMeshFace& face : delaunay.triangleMesh.getUniqueFaces()) {
         glm::vec3 center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2)) / 3.f;
-        int r, g, b, a = 0;
-        if (center.x >= 0 && center.y >= 0 && center.z >= 0) {
-            r = source.at<cv::Vec3b>(center.y, center.x)[0];
-            g = source.at<cv::Vec3b>(center.y, center.x)[1];
-            b = source.at<cv::Vec3b>(center.y, center.x)[2];
-        }
-        (void)a;
         mosaic.tessels.push_back({{face.getVertex(0), face.getVertex(1), face.getVertex(2)},
-                                  ofColor(r, g, b)});
+                                  rgb.getColor(int(center.x), int(center.y))});
     }
     return mosaic;
 }

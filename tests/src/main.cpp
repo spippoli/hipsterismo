@@ -48,6 +48,7 @@ class ofApp : public ofxUnitTestsApp {
         testEmptyFrame();
         testFrameWithoutContours();
         testTesselColourComesFromFrame();
+        testTesselsStayInsideFrame();
         testDeterminism();
         testPixelFormats();
         testToMesh();
@@ -85,6 +86,31 @@ class ofApp : public ofxUnitTestsApp {
         }
         ofxTest(allMatch, "every Tessel takes the Frame colour at its centroid");
         ofxTest(foundForeground, "some Tessels take the rectangle's colour");
+    }
+
+    void testTesselsStayInsideFrame() {
+        // A rectangle close to every border: resampling the Contours overshoots
+        // past the Frame's edges unless it is kept inside.
+        ofPixels frame = solidFrame(160, 120, background);
+        for (int y = 6; y < 114; y++) {
+            for (int x = 6; x < 154; x++) {
+                frame.setColor(x, y, foreground);
+            }
+        }
+        Mosaic mosaic = MosaicMaker().make(frame);
+        ofxTest(!mosaic.tessels.empty(), "near-border Frame has Tessels");
+
+        bool inside = true;
+        bool coloursMatch = true;
+        for (const Tessel& tessel : mosaic.tessels) {
+            for (const glm::vec3& v : tessel.triangle) {
+                inside = inside && v.x >= 0 && v.y >= 0 && v.x <= 159 && v.y <= 119;
+            }
+            glm::vec3 c = centroid(tessel);
+            coloursMatch = coloursMatch && tessel.color == frame.getColor(int(c.x), int(c.y));
+        }
+        ofxTest(inside, "every Tessel vertex lies inside the Frame");
+        ofxTest(coloursMatch, "border Tessels take the Frame colour at their centroid");
     }
 
     void testDeterminism() {
