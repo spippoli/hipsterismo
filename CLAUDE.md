@@ -8,9 +8,10 @@ An openFrameworks app that turns a video file (`bin/data/fingers.mov`) or a webc
 
 ## Build and run
 
-The project must live at `<OF_ROOT>/apps/myApps/hipsterismo`: both `Makefile` and `Project.xcconfig` set `OF_ROOT`/`OF_PATH` to `../../..`.
+The project must live at `<OF_ROOT>/apps/myApps/hipsterismo`, because the `Makefile` sets `OF_ROOT` to `../../..`.
 
-- `make` (or `make Debug` / `make Release`), then `make run`, or run the binary in `bin/` directly. The app loads assets from `bin/data/`.
+- Linux/macOS: `make` (or `make Debug` / `make Release`), then `make run`, or run the binary in `bin/` directly. The app loads assets from `bin/data/`.
+- IDE projects (Xcode, Visual Studio, VS Code) are not checked in, and `.gitignore` ignores them. Generate them with the openFrameworks projectGenerator: import this folder, and it reads `addons.make`.
 
 There are no tests and no linter.
 
@@ -28,9 +29,9 @@ git clone https://github.com/memo/ofxMSAInterpolator.git
 
 ### openFrameworks version
 
-The app targets openFrameworks 0.12.x on Linux (OpenCV 4, C++20). It was originally written for OF 0.8 on macOS. The Xcode project files are left over from that version and probably won't work with current OF.
+The app targets openFrameworks 0.12.x on every platform OF supports. It was originally written for OF 0.8 on macOS and has been built and run on Linux (OpenCV 4, C++20).
 
-- `ofApp.h` wraps `#include "MSAInterpolator.h"` in a `#pragma GCC diagnostic` block. `InterpolatorT::sampleAt()` has no trailing return, and OF's `-Werror=return-type` would otherwise fail the build. OF adds that flag after the project flags, so it can't be overridden in `config.make`.
+- `ofApp.h` wraps `#include "MSAInterpolator.h"` in a `#pragma GCC diagnostic` block, guarded by `__GNUC__` so it applies to GCC and Clang only. `InterpolatorT::sampleAt()` has no trailing return, and OF's `-Werror=return-type` would otherwise fail the build. OF adds that flag after the project flags, so it can't be overridden in `config.make`.
 - ofxCv's `cvtColor`/`GaussianBlur` wrappers changed, so the app calls `cv::cvtColor` and `cv::GaussianBlur` directly.
 - Expect a lot of `-Wdeprecated-enum-enum-conversion` warnings from the OpenCV 4 headers under C++20. They are harmless.
 
