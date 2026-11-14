@@ -4,3 +4,10 @@ bin/data/.gitkeep
 bin/hipsterismoDebug.app
 
 hipsterismo.xcodeproj/project.xcworkspace/xcuserdata/dario.xcuserdatad/UserInterfaceState.xcuserstate
+
+# Linux build output
+obj/
+bin/hipsterismo
+bin/hipsterismo_debug
+bin/*.so
+bin/data/screenshot.png
