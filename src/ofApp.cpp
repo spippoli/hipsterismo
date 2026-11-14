@@ -17,8 +17,18 @@ void ofApp::setup(){
     gui.setTextColor(ofColor(255,255,255));
     gui.loadFromFile("settings.xml");
 #ifdef LIVE_INPUT
+#ifdef TARGET_LINUX
+    // No pixel format in the caps: GStreamer negotiates a system-memory one
+    // (e.g. YUY2) and videoconvert turns it into the RGB the appsink asks for.
+    if (!cam.setPipeline("v4l2src device=/dev/video0 ! video/x-raw,width=320,height=240,framerate=30/1 ! videoconvert",
+                         OF_PIXELS_RGB, false, 320, 240)
+        || !cam.startPipeline()) {
+        ofLogError("ofApp") << "could not open /dev/video0";
+    }
+#else
     cam.setDeviceID(0);
     cam.initGrabber(320, 240);
+#endif
 #else
     player.load("fingers.mov");
     player.play();
