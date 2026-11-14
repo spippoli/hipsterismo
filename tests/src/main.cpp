@@ -30,6 +30,27 @@ glm::vec3 centroid(const Tessel& tessel) {
     return (tessel.triangle[0] + tessel.triangle[1] + tessel.triangle[2]) / 3.f;
 }
 
+double area(const Tessel& tessel) {
+    glm::dvec3 ab = glm::dvec3(tessel.triangle[1]) - glm::dvec3(tessel.triangle[0]);
+    glm::dvec3 ac = glm::dvec3(tessel.triangle[2]) - glm::dvec3(tessel.triangle[0]);
+    return std::abs(ab.x * ac.y - ab.y * ac.x) / 2.0;
+}
+
+double coveredArea(const Mosaic& mosaic) {
+    double total = 0;
+    for (const Tessel& tessel : mosaic.tessels) total += area(tessel);
+    return total;
+}
+
+// Tessels tile the Frame exactly: no gaps (area too small) and no overlaps
+// (area too large). The tolerance only absorbs float vertex rounding.
+bool coversFrame(const Mosaic& mosaic, double width, double height) {
+    double covered = coveredArea(mosaic);
+    if (std::abs(covered - width * height) < 0.1) return true;
+    ofLogError("coversFrame") << "covered " << ofToString(covered, 3) << " of " << width * height;
+    return false;
+}
+
 bool sameMosaic(const Mosaic& a, const Mosaic& b) {
     if (a.tessels.size() != b.tessels.size()) return false;
     for (size_t i = 0; i < a.tessels.size(); i++) {
@@ -47,6 +68,7 @@ class ofApp : public ofxUnitTestsApp {
     void run() {
         testEmptyFrame();
         testFrameWithoutContours();
+        testMosaicCoversFrame();
         testTesselColourComesFromFrame();
         testTesselsStayInsideFrame();
         testDeterminism();
@@ -64,9 +86,25 @@ class ofApp : public ofxUnitTestsApp {
 
     void testFrameWithoutContours() {
         MosaicMaker maker;
-        Mosaic mosaic = maker.make(solidFrame(160, 120, ofColor::black));
-        ofxTest(mosaic.tessels.empty(), "uniform Frame gives no Tessels");
+        Mosaic mosaic = maker.make(solidFrame(160, 120, background));
         ofxTest(mosaic.contours.empty(), "uniform Frame gives no Contours");
+        ofxTest(coversFrame(mosaic, 160, 120), "uniform Frame is still covered by Tessels");
+
+        bool allBackground = true;
+        for (const Tessel& tessel : mosaic.tessels) allBackground = allBackground && tessel.color == background;
+        ofxTest(allBackground, "uniform Frame gives Tessels of its colour");
+    }
+
+    void testMosaicCoversFrame() {
+        // Contours well inside the Frame: without help their hull leaves the borders uncovered.
+        ofPixels frame = rectangleFrame(background, foreground);
+        Mosaic mosaic = MosaicMaker().make(frame);
+        ofxTest(coversFrame(mosaic, 160, 120), "Tessels cover the whole Frame");
+
+        ofPixels nearBorder = solidFrame(160, 120, background);
+        for (int y = 6; y < 114; y++) for (int x = 6; x < 154; x++) nearBorder.setColor(x, y, foreground);
+        ofxTest(coversFrame(MosaicMaker().make(nearBorder), 160, 120),
+                  "Tessels cover the whole Frame near the borders too");
     }
 
     void testTesselColourComesFromFrame() {
@@ -105,7 +143,7 @@ class ofApp : public ofxUnitTestsApp {
         bool coloursMatch = true;
         for (const Tessel& tessel : mosaic.tessels) {
             for (const glm::vec3& v : tessel.triangle) {
-                inside = inside && v.x >= 0 && v.y >= 0 && v.x <= 159 && v.y <= 119;
+                inside = inside && v.x >= 0 && v.y >= 0 && v.x <= 160 && v.y <= 120;
             }
             glm::vec3 c = centroid(tessel);
             coloursMatch = coloursMatch && tessel.color == frame.getColor(int(c.x), int(c.y));
@@ -129,8 +167,8 @@ class ofApp : public ofxUnitTestsApp {
         MosaicMaker maker;
         maker.minArea = 10000;
         Mosaic mosaic = maker.make(frame);
-        ofxTest(mosaic.contours.empty() && mosaic.tessels.empty(),
-                "Contours smaller than min area are ignored");
+        ofxTest(mosaic.contours.empty(), "Contours smaller than min area are ignored");
+        ofxTest(coversFrame(mosaic, 160, 120), "Frame without Contours is still covered");
     }
 
     void testPixelFormats() {

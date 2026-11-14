@@ -38,8 +38,9 @@ ofMesh toMesh(const Mosaic& mosaic);
 // always give the same Mosaic. The object only keeps scratch buffers so that
 // video-rate Frames don't reallocate them every time.
 //
-// Frames may be grayscale, RGB or RGBA. An empty Frame, or one with no
-// Contours, gives an empty Mosaic.
+// Frames may be grayscale, RGB or RGBA. The Tessels always tile the whole
+// Frame rectangle, (0,0) to (width,height), even where there are no Contours;
+// only an empty Frame gives an empty Mosaic.
 class MosaicMaker {
 public:
     MosaicMaker();
