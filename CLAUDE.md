@@ -63,3 +63,7 @@ Domain terms (Frame, Contour, Tessel, Mosaic) are defined in `GLOSSARY.md`.
 | `c` | Toggle contour overlay |
 | `d` | Toggle Delaunay wireframe overlay |
 | `p` | Save a screenshot to `bin/data/screenshot.png` |
+
+## Attribution
+
+In this project, attribution lines use the clown emoji 🤡 in place of the robot emoji 🤖, in commit messages and in pull request descriptions alike: for example `🤡 Generated with [Claude Code](https://claude.com/claude-code)`.
