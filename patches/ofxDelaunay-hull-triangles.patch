@@ -1,0 +1,36 @@
+diff --git a/libs/Delaunay/src/Delaunay.cpp b/libs/Delaunay/src/Delaunay.cpp
+index eaa7b39..b1afaf6 100755
+--- a/libs/Delaunay/src/Delaunay.cpp
++++ b/libs/Delaunay/src/Delaunay.cpp
+@@ -119,13 +119,17 @@ int Triangulate(int nv, XYZ pxyz[], ITRIANGLE v[], int &ntri)
+    // The supertriangle coordinates are added to the end of the
+    // vertex list. The supertriangle is the first triangle in
+    // the triangle list.
+-    pxyz[nv+0].x = xmid - 20 * dmax;
++   // It must be far larger than the points' extent: a triangle whose
++   // circumcircle reaches a supertriangle vertex is dropped with it, so the
++   // original factor of 20 loses flat triangles along the convex hull.
++    const double SUPER = 100000.0;
++    pxyz[nv+0].x = xmid - SUPER * dmax;
+     pxyz[nv+0].y = ymid - dmax;
+     pxyz[nv+0].z = 0.0;
+     pxyz[nv+1].x = xmid;
+-    pxyz[nv+1].y = ymid + 20 * dmax;
++    pxyz[nv+1].y = ymid + SUPER * dmax;
+     pxyz[nv+1].z = 0.0;
+-    pxyz[nv+2].x = xmid + 20 * dmax;
++    pxyz[nv+2].x = xmid + SUPER * dmax;
+     pxyz[nv+2].y = ymid - dmax;
+     pxyz[nv+0].z = 0.0;
+     v[0].p1 = nv;
+@@ -159,7 +163,9 @@ int Triangulate(int nv, XYZ pxyz[], ITRIANGLE v[], int &ntri)
+             
+             // Suggested
+             // if (xc + r + EPSILON < xp)
+-            if (xc < xp && ((xp-xc)*(xp-xc)) > r)
++            // r is the radius (CircumCircle returns sqrt(rsqr)): the triangle
++            // is complete once xp is right of its circumcircle.
++            if (xc < xp && (xp-xc) > r)
+                 complete[j] = true;
+             
+             if(inside){

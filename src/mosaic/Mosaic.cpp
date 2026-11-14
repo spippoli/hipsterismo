@@ -115,9 +115,11 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
     }
 
     delaunay.reset();
-    // ofxDelaunay's triangulation is not robust to nearly coincident points
-    // (overlapping triangles). Snap every point to a half-pixel grid and add
-    // each grid point once.
+    // Snap every point to a half-pixel grid and add each grid point once:
+    // the triangulation needs distinct points, and spline mode's look
+    // depends on this snapping. ofxDelaunay must carry
+    // patches/ofxDelaunay-hull-triangles.patch, or it drops flat triangles
+    // along the Frame border.
     std::set<std::pair<float, float>> added;
     auto addPoint = [&](float x, float y) {
         x = std::round(x * 2) / 2;
