@@ -3,6 +3,8 @@
 #include "ofxUnitTests.h"
 #include "Mosaic.h"
 
+#include <algorithm>
+#include <random>
 #include <set>
 
 namespace {
@@ -42,6 +44,49 @@ double coveredArea(const Mosaic& mosaic) {
     double total = 0;
     for (const Tessel& tessel : mosaic.tessels) total += area(tessel);
     return total;
+}
+
+// Triangulates `points` with ofxDelaunay and checks that the triangles tile
+// the width x height rectangle exactly: every pixel's sample point (off the
+// half-pixel grid, at offsets an edge between half-pixel points is unlikely
+// to pass through) lies in exactly one triangle.
+bool delaunayTilesRectangle(const std::vector<glm::vec2>& points, int width, int height) {
+    ofxDelaunay delaunay;
+    for (const glm::vec2& p : points) delaunay.addPoint(ofPoint(p.x, p.y));
+    delaunay.triangulate();
+    const ofMesh& mesh = delaunay.triangleMesh;
+    std::vector<int> cover(width * height, 0);
+    for (std::size_t i = 0; i + 2 < mesh.getNumIndices(); i += 3) {
+        glm::dvec2 a(mesh.getVertex(mesh.getIndex(i))), b(mesh.getVertex(mesh.getIndex(i + 1))),
+            c(mesh.getVertex(mesh.getIndex(i + 2)));
+        auto side = [](glm::dvec2 p, glm::dvec2 q, glm::dvec2 r) {
+            return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        };
+        if (side(a, b, c) < 0) std::swap(b, c);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                glm::dvec2 s(x + 0.3713137, y + 0.6180339);
+                if (side(a, b, s) > 0 && side(b, c, s) > 0 && side(c, a, s) > 0) cover[y * width + x]++;
+            }
+        }
+    }
+    int gaps = 0, overlaps = 0;
+    for (int n : cover) {
+        if (n == 0) gaps++;
+        if (n > 1) overlaps++;
+    }
+    if (gaps || overlaps) {
+        ofLogError("delaunayTilesRectangle") << points.size() << " points: " << gaps << " uncovered, "
+                                             << overlaps << " overlapped pixels";
+    }
+    return gaps == 0 && overlaps == 0;
+}
+
+// The corners of a width x height rectangle, plus `extra`.
+std::vector<glm::vec2> withCorners(int width, int height, std::vector<glm::vec2> extra) {
+    std::vector<glm::vec2> points = {{0, 0}, {width, 0}, {0, height}, {width, height}};
+    points.insert(points.end(), extra.begin(), extra.end());
+    return points;
 }
 
 // Tessels tile the Frame exactly: no gaps (area too small) and no overlaps
@@ -136,6 +181,40 @@ class ofApp : public ofxUnitTestsApp {
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
+        testDelaunayKeepsFlatBorderTriangles();
+        testDelaunayTilesRandomPointSets();
+    }
+
+    // A point half a pixel from the border makes a flat triangle whose
+    // circumcircle is far larger than the Frame.
+    void testDelaunayKeepsFlatBorderTriangles() {
+        ofxTest(delaunayTilesRectangle(withCorners(160, 120, {{67, 119.5}}), 160, 120),
+                "Delaunay keeps the flat triangle along the border");
+    }
+
+    // Seeded point sets on the half-pixel grid, like the Mosaic's, with
+    // points on the border and many equal x coordinates.
+    void testDelaunayTilesRandomPointSets() {
+        std::mt19937 rng(17);
+        int failures = 0;
+        for (int set = 0; set < 200; set++) {
+            int columns = 2 + set % 40;
+            std::uniform_int_distribution<int> column(0, columns), row(0, 240), count(1, 150);
+            std::vector<glm::vec2> extra;
+            for (int i = count(rng); i > 0; i--) {
+                float x = std::round(column(rng) * 320.f / columns) / 2.f;
+                extra.push_back({x, row(rng) / 2.f});
+            }
+            std::sort(extra.begin(), extra.end(), [](glm::vec2 a, glm::vec2 b) { return a.x < b.x || (a.x == b.x && a.y < b.y); });
+            extra.erase(std::unique(extra.begin(), extra.end()), extra.end());
+            std::shuffle(extra.begin(), extra.end(), rng);
+            std::vector<glm::vec2> points = withCorners(160, 120, {});
+            for (glm::vec2 p : extra) {
+                if (std::find(points.begin(), points.end(), p) == points.end()) points.push_back(p);
+            }
+            if (!delaunayTilesRectangle(points, 160, 120)) failures++;
+        }
+        ofxTestEq(failures, 0, "Delaunay tiles the rectangle for 200 random point sets");
     }
 
     void testEmptyFrame() {
