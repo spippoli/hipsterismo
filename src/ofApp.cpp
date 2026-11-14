@@ -1,11 +1,5 @@
 #include "ofApp.h"
 
-cv::Mat source,sourceBW, canny;
-msa::Interpolator2D interpol;
-
-
-
-
 //--------------------------------------------------------------
 void ofApp::setup(){
     fullscreen = false;
@@ -13,16 +7,13 @@ void ofApp::setup(){
     drawContour = false;
     drawDelaunay = false;
     drawHipster = true;
-    
+
     ofSetVerticalSync(true);
-//    ofEnableAlphaBlending();
     ofEnableAntiAliasing();
-    
-    gui.setup("panel","settings.xml",0,0);
-    gui.add(threshold1.set("first threshold",0,0,400));
-    gui.add(threshold2.set("second threshold",20,0,400));
-    gui.add(max_it.set("blur iteration",9,1,31));
-    gui.add(resolution.set("interpolation resolution",1000,2,10000));
+
+    // The panel's root group must stay named "panel" so settings.xml keeps loading.
+    mosaicMaker.parameters.setName("panel");
+    gui.setup(mosaicMaker.parameters, "settings.xml", 0, 0);
     gui.setTextColor(ofColor(255,255,255));
     gui.loadFromFile("settings.xml");
 #ifdef LIVE_INPUT
@@ -32,14 +23,6 @@ void ofApp::setup(){
     player.load("fingers.mov");
     player.play();
 #endif
-    
-    finder.setMinArea(2);
-    finder.setMaxArea(400000);
-    finder.setThreshold(128);
-    finder.setFindHoles(true);
-
-    mesh.setMode(OF_PRIMITIVE_TRIANGLES);
-    
 }
 
 //--------------------------------------------------------------
@@ -47,120 +30,54 @@ void ofApp::update(){
 #ifdef LIVE_INPUT
     cam.update();
     if (cam.isFrameNew()) {
-        cv::flip(ofxCv::toCv(cam), source, 1);
+        frame = cam.getPixels();
+        frame.mirror(false, true);
 #else
     player.update();
     if (player.isFrameNew()) {
-        source = ofxCv::toCv(player);
+        frame = player.getPixels();
 #endif
-        
-        cv::cvtColor(source, sourceBW, cv::COLOR_RGB2GRAY);
-        for(int i = 1;i < max_it; i = i+2)
-        cv::GaussianBlur(sourceBW, sourceBW, cv::Size(i,i), 1);
-        ofxCv::Canny(sourceBW, canny, threshold1, threshold2,3,gradient);
-        finder.findContours(canny);
-        ContourVector contours = finder.getContours();
-        interpol.clear();
-        delaunay.reset();
-        for (ContourVector::iterator contour = contours.begin(); contour != contours.end(); contour++) {
-            for(std::vector<cv::Point>::iterator point = contour->begin(); point != contour->end(); point++) {
-                interpol.push_back(ofxCv::toOf(*point));
-            }
-        }
-        
-        for (float step = 0.0; step < 1.0 ; step+=1/(float)resolution) {
-            delaunay.addPoint(interpol.sampleAt(step));
-        }
-        delaunay.triangulate();
-        
-        mesh.clear();
- 
-        const std::vector<ofMeshFace> faces = delaunay.triangleMesh.getUniqueFaces();
-        for (int i = 0; i < faces.size(); i++)
-        {
-            ofMeshFace face = faces[i];
-            ofPoint center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2))/3;
-            int r,g,b,a = 0;
-            if (center.x >= 0 && center.y >= 0 && center.z >= 0) {
-                r = source.at<cv::Vec3b>(center.y,center.x)[0];
-                g = source.at<cv::Vec3b>(center.y,center.x)[1];
-                b = source.at<cv::Vec3b>(center.y,center.x)[2];
-//                a = (r+g+b)/3;
-            }
-
-            ofColor faceColor = ofColor(r, g, b);            
-//            ofColor faceColor = ofColor(r, g, b,a);
-            mesh.addVertex(face.getVertex(0));
-            mesh.addTexCoord(face.getVertex(0));
-            mesh.addColor(faceColor);
-            mesh.addVertex(face.getVertex(1));
-            mesh.addTexCoord(face.getVertex(1));
-            mesh.addColor(faceColor);
-            mesh.addVertex(face.getVertex(2));
-            mesh.addTexCoord(face.getVertex(2));
-            mesh.addColor(faceColor);
-        }
-
+        frameImage.setFromPixels(frame);
+        mosaic = mosaicMaker.make(frame);
+        mesh = toMesh(mosaic);
     }
-
-    
 }
 
 //--------------------------------------------------------------
 void ofApp::draw(){
     ofBackground(0,0,0);
+    if (!frame.isAllocated()) {
+        return;
+    }
 
-    if(drawHipster) {
-        
-        
-        ofPushStyle();
-        ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
-        ofSetColor(255, 255, 255);
+    ofPushStyle();
+    ofPushMatrix();
+    ofScale(ofGetWindowWidth()/(float)frame.getWidth(), ofGetWindowHeight()/(float)frame.getHeight());
+    ofSetColor(255, 255, 255);
+    if (drawHipster) {
         mesh.draw();
-        ofPopMatrix();
-        ofPopStyle();
-        
-    }
-    else {
-        ofPushStyle();
-        ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
-        ofSetColor(255, 255, 255);
-        ofxCv::drawMat(source, 0, 0);
-        ofPopMatrix();
-        ofPopStyle();
-        
+    } else {
+        frameImage.draw(0, 0);
     }
 
-    
-    if(drawContour) {
-        ofPushStyle();
-        ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
+    if (drawContour) {
         ofNoFill();
         ofSetColor(255, 255, 255);
-        finder.draw();
-        ofPopMatrix();
-        ofPopStyle();
+        for (const ofPolyline& contour : mosaic.contours) {
+            contour.draw();
+        }
     }
-    
+
     if (drawDelaunay) {
-        ofPushStyle();
-        ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
         ofNoFill();
         ofSetColor(180, 180, 180);
-        delaunay.draw();
-        ofPopMatrix();
-        ofPopStyle();
+        mesh.disableColors();
+        mesh.drawWireframe();
+        mesh.enableColors();
     }
+    ofPopMatrix();
+    ofPopStyle();
 
-
-    
-
-
-    
     if (drawGui) {
         ofPushStyle();
         ofPushMatrix();
