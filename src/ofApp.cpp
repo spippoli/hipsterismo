@@ -29,7 +29,7 @@ void ofApp::setup(){
     cam.setDeviceID(0);
     cam.initGrabber(320, 240);
 #else
-    player.loadMovie("fingers.mov");
+    player.load("fingers.mov");
     player.play();
 #endif
     
@@ -54,16 +54,16 @@ void ofApp::update(){
         source = ofxCv::toCv(player);
 #endif
         
-        ofxCv::cvtColor(source, sourceBW, CV_BGR2GRAY);
+        cv::cvtColor(source, sourceBW, cv::COLOR_RGB2GRAY);
         for(int i = 1;i < max_it; i = i+2)
-        ofxCv::GaussianBlur(sourceBW, sourceBW, cv::Size_<int>(i,i), 1);
+        cv::GaussianBlur(sourceBW, sourceBW, cv::Size(i,i), 1);
         ofxCv::Canny(sourceBW, canny, threshold1, threshold2,3,gradient);
         finder.findContours(canny);
         ContourVector contours = finder.getContours();
         interpol.clear();
         delaunay.reset();
         for (ContourVector::iterator contour = contours.begin(); contour != contours.end(); contour++) {
-            for(vector<cv::Point>::iterator point = contour->begin(); point != contour->end(); point++) {
+            for(std::vector<cv::Point>::iterator point = contour->begin(); point != contour->end(); point++) {
                 interpol.push_back(ofxCv::toOf(*point));
             }
         }
@@ -75,7 +75,7 @@ void ofApp::update(){
         
         mesh.clear();
  
-        const vector<ofMeshFace> faces = delaunay.triangleMesh.getUniqueFaces();
+        const std::vector<ofMeshFace> faces = delaunay.triangleMesh.getUniqueFaces();
         for (int i = 0; i < faces.size(); i++)
         {
             ofMeshFace face = faces[i];
@@ -115,7 +115,7 @@ void ofApp::draw(){
         
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
+        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
         ofSetColor(255, 255, 255);
         mesh.draw();
         ofPopMatrix();
@@ -125,7 +125,7 @@ void ofApp::draw(){
     else {
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
+        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
         ofSetColor(255, 255, 255);
         ofxCv::drawMat(source, 0, 0);
         ofPopMatrix();
@@ -137,7 +137,7 @@ void ofApp::draw(){
     if(drawContour) {
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
+        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
         ofNoFill();
         ofSetColor(255, 255, 255);
         finder.draw();
@@ -148,7 +148,7 @@ void ofApp::draw(){
     if (drawDelaunay) {
         ofPushStyle();
         ofPushMatrix();
-        ofScale(ofGetWindowWidth()/(float)source.rows, ofGetWindowHeight()/(float)source.cols);
+        ofScale(ofGetWindowWidth()/(float)source.cols, ofGetWindowHeight()/(float)source.rows);
         ofNoFill();
         ofSetColor(180, 180, 180);
         delaunay.draw();
@@ -207,7 +207,7 @@ void ofApp::keyPressed(int key){
             ofImage snapshot;
             snapshot.allocate(ofGetWindowWidth(), ofGetWindowHeight(), OF_IMAGE_COLOR);
             snapshot.grabScreen(0,0,ofGetWindowWidth(), ofGetWindowHeight());
-            snapshot.saveImage("screenshot.png");
+            snapshot.save("screenshot.png");
         }
             break;
         default:

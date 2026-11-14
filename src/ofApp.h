@@ -5,16 +5,21 @@
 #include "ofMain.h"
 #include "ofxGui.h"
 #include "ofxCv.h"
+// ofxMSAInterpolator's sampleAt() ends in a switch with no trailing return,
+// which OF's -Werror=return-type turns into a hard error.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
 #include "MSAInterpolator.h"
+#pragma GCC diagnostic pop
 #include "ofxDelaunay.h"
 
 //#define LIVE_INPUT
 
-typedef vector< vector<cv::Point> > ContourVector;
+typedef std::vector< std::vector<cv::Point> > ContourVector;
 
 struct tessel {
-    tessel(vector<ofPoint> t, ofColor c) : triangle(t),color(c) {};
-    vector<ofPoint> triangle;
+    tessel(std::vector<ofPoint> t, ofColor c) : triangle(t),color(c) {};
+    std::vector<ofPoint> triangle;
            ofColor color;
 };
 
@@ -35,7 +40,7 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
     
-    bool geometric_center(const vector<ofPoint> &triangle, ofPoint &baricenter) {
+    bool geometric_center(const std::vector<ofPoint> &triangle, ofPoint &baricenter) {
         if(triangle.size() != 3)
             return false;
         else {
@@ -61,7 +66,7 @@ class ofApp : public ofBaseApp{
         ofVideoPlayer player;
 #endif
         ofxCv::ContourFinder finder;
-        vector<tessel> mosaic;
+        std::vector<tessel> mosaic;
 
         ofxDelaunay delaunay;
         ofMesh mesh;
