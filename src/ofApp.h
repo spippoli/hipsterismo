@@ -26,6 +26,12 @@ class ofApp : public ofBaseApp{
 		void dragEvent(ofDragInfo dragInfo);
 		void gotMessage(ofMessage msg);
 
+        // Still mode (from the command line): render the Mosaic of
+        // stillInput to stillOutput and exit, without showing a window.
+        std::string stillInput;
+        std::string stillOutput;
+        bool renderStill();
+
         bool fullscreen;
         bool drawGui;
         bool drawContour;
