@@ -16,6 +16,10 @@ void ofApp::setup(){
     gui.setup(mosaicMaker.parameters, "settings.xml", 0, 0);
     gui.setTextColor(ofColor(255,255,255));
     gui.loadFromFile("settings.xml");
+    if (!stillInput.empty()) {
+        ofExit(renderStill() ? 0 : 1);
+        return;
+    }
 #ifdef LIVE_INPUT
 #ifdef TARGET_LINUX
     // No pixel format in the caps: GStreamer negotiates a system-memory one
@@ -37,6 +41,9 @@ void ofApp::setup(){
 
 //--------------------------------------------------------------
 void ofApp::update(){
+    if (!stillInput.empty()) {
+        return;
+    }
 #ifdef LIVE_INPUT
     cam.update();
     if (cam.isFrameNew()) {
@@ -51,6 +58,36 @@ void ofApp::update(){
         mosaic = mosaicMaker.make(frame);
         mesh = toMesh(mosaic);
     }
+}
+
+//--------------------------------------------------------------
+// Mosaic of one image with the spline (original) vertices and the thresholds
+// from settings.xml, drawn at the image's own size and saved.
+bool ofApp::renderStill(){
+    ofPixels image;
+    if (!ofLoadImage(image, stillInput) || !image.isAllocated()) {
+        ofLogError("ofApp") << "could not load image " << stillInput;
+        return false;
+    }
+    mosaicMaker.stableVertices = false;
+    ofMesh stillMesh = toMesh(mosaicMaker.make(image));
+
+    ofFbo fbo;
+    fbo.allocate(image.getWidth(), image.getHeight(), GL_RGB, 4);
+    fbo.begin();
+    ofClear(0, 0, 0, 255);
+    ofSetColor(255, 255, 255);
+    stillMesh.draw();
+    fbo.end();
+
+    ofPixels result;
+    fbo.readToPixels(result);
+    if (!ofSaveImage(result, stillOutput)) {
+        ofLogError("ofApp") << "could not save " << stillOutput;
+        return false;
+    }
+    ofLogNotice("ofApp") << "saved " << stillOutput;
+    return true;
 }
 
 //--------------------------------------------------------------
