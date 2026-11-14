@@ -1,5 +1,8 @@
 #include "Mosaic.h"
 
+#include <set>
+#include <utility>
+
 MosaicMaker::MosaicMaker() {
     parameters.setName("mosaic");
     parameters.add(threshold1.set("first threshold", 0, 0, 400));
@@ -43,25 +46,57 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
             interpolator.push_back(ofxCv::toOf(point));
         }
     }
-    if (interpolator.size() < 3) {
-        return mosaic;
+    // The Mosaic spans the whole Frame rectangle, from (0,0) to (width,height).
+    const float width = rgb.getWidth();
+    const float height = rgb.getHeight();
+    delaunay.reset();
+    // ofxDelaunay's triangulation is not robust to nearly coincident points:
+    // the spline bunches samples into tiny clusters at sharp Contour corners,
+    // and those clusters give overlapping triangles. Snap every point to a
+    // half-pixel grid and add each grid point once.
+    std::set<std::pair<float, float>> added;
+    auto addPoint = [&](float x, float y) {
+        x = std::round(x * 2) / 2;
+        y = std::round(y * 2) / 2;
+        if (added.insert({x, y}).second) {
+            delaunay.addPoint(ofPoint(x, y));
+        }
+    };
+
+    // Points along the Frame's border, corners included, so the triangulation
+    // covers the full rectangle and not just the hull of the Contours.
+    const int borderSegments = 8;
+    for (int i = 0; i < borderSegments; i++) {
+        float t = i / (float)borderSegments;
+        addPoint(t * width, 0);
+        addPoint(width, t * height);
+        addPoint(width - t * width, height);
+        addPoint(0, height - t * height);
     }
 
     // The spline overshoots past the Frame where it jumps between Contours;
-    // keep every sample inside so Tessels (and their colours) stay in the Frame.
-    const float maxX = rgb.getWidth() - 1;
-    const float maxY = rgb.getHeight() - 1;
-    delaunay.reset();
-    for (float step = 0.0; step < 1.0; step += 1 / (float)resolution) {
-        glm::vec2 sample = interpolator.sampleAt(step);
-        delaunay.addPoint(ofPoint(ofClamp(sample.x, 0, maxX), ofClamp(sample.y, 0, maxY)));
+    // keep every sample inside so Tessels stay in the Frame.
+    if (interpolator.size() >= 3) {
+        for (float step = 0.0; step < 1.0; step += 1 / (float)resolution) {
+            glm::vec2 sample = interpolator.sampleAt(step);
+            addPoint(ofClamp(sample.x, 0, width), ofClamp(sample.y, 0, height));
+        }
     }
     delaunay.triangulate();
 
     for (const ofMeshFace& face : delaunay.triangleMesh.getUniqueFaces()) {
+        // Clamped samples lying on the border are collinear with the border
+        // points and can give zero-area triangles: they draw nothing, skip them.
+        glm::vec3 ab = face.getVertex(1) - face.getVertex(0);
+        glm::vec3 ac = face.getVertex(2) - face.getVertex(0);
+        if (std::abs(ab.x * ac.y - ab.y * ac.x) < 1e-3f) {
+            continue;
+        }
         glm::vec3 center = (face.getVertex(0) + face.getVertex(1) + face.getVertex(2)) / 3.f;
+        int x = ofClamp(int(center.x), 0, rgb.getWidth() - 1);
+        int y = ofClamp(int(center.y), 0, rgb.getHeight() - 1);
         mosaic.tessels.push_back({{face.getVertex(0), face.getVertex(1), face.getVertex(2)},
-                                  rgb.getColor(int(center.x), int(center.y))});
+                                  rgb.getColor(x, y)});
     }
     return mosaic;
 }

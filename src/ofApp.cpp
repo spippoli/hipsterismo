@@ -62,7 +62,12 @@ void ofApp::draw(){
 
     ofPushStyle();
     ofPushMatrix();
-    ofScale(ofGetWindowWidth()/(float)frame.getWidth(), ofGetWindowHeight()/(float)frame.getHeight());
+    // Fit the Frame inside the window keeping its aspect ratio, centred
+    // (letterboxed or pillarboxed on the black background).
+    ofRectangle placement(0, 0, frame.getWidth(), frame.getHeight());
+    placement.scaleTo(ofRectangle(0, 0, ofGetWindowWidth(), ofGetWindowHeight()), OF_SCALEMODE_FIT);
+    ofTranslate(placement.x, placement.y);
+    ofScale(placement.width / frame.getWidth());
     ofSetColor(255, 255, 255);
     if (drawHipster) {
         mesh.draw();
