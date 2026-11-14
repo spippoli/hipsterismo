@@ -13,9 +13,9 @@ An outline of an edge found in a Frame; the Tessels are built from points along 
 _Avoid_: edge, outline, blob
 
 **Tessel**:
-One triangle of a Mosaic together with its single flat colour, taken from the Frame at the triangle's centre.
+One triangle of a Mosaic together with its single flat colour, taken from the Frame where the triangle lies.
 _Avoid_: face, triangle (when the colour is part of the meaning), tile
 
 **Mosaic**:
-The set of Tessels produced from one Frame, tiling the whole Frame rectangle, together with the Contours they were built from; what the app shows in its "hipster" view.
+The set of Tessels produced from one Frame, tiling the whole Frame rectangle, together with the Contours they were built from, if any; what the app shows in its "hipster" view.
 _Avoid_: hipster, mesh, polygonization, low-poly
