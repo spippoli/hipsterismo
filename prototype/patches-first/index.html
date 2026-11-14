@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patches First Prototype</title>
+<style>
+  :root { --bg:#f6f6f4; --fg:#1d1d1b; --muted:#6b6b66; --panel:#ffffff; --line:#d9d9d4; --accent:#c2410c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --panel:#1f1f1e; --line:#33332f; --accent:#fb923c; } }
+  :root[data-theme="dark"] { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --panel:#1f1f1e; --line:#33332f; --accent:#fb923c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; padding:16px; }
+  h1 { font-size:17px; margin:0 0 4px; }
+  .note { color:var(--muted); margin:0 0 14px; max-width:78ch; }
+  .wrap { display:flex; flex-wrap:wrap; gap:16px; align-items:flex-start; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; width:100%; max-width:340px; }
+  .row { margin:0 0 12px; }
+  .row > label, .row > .lbl { display:flex; justify-content:space-between; font-weight:600; margin-bottom:4px; }
+  .row label span { font-weight:400; color:var(--muted); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; }
+  .seg { display:flex; flex-wrap:wrap; gap:6px; }
+  button { font:inherit; padding:4px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  .checks label { display:inline-flex; gap:4px; margin-right:12px; font-weight:400; }
+  .views { display:flex; flex-direction:column; gap:12px; min-width:0; flex:1; }
+  canvas, img.src { max-width:100%; height:auto; border:1px solid var(--line); border-radius:4px; display:block; }
+  img.src { image-rendering:pixelated; }
+  .pair { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-start; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin:0; font-size:12px; white-space:pre-wrap; max-width:960px; }
+  .err { color:var(--accent); }
+</style>
+</head>
+<body>
+<h1>PROTOTYPE · adaptive vertex mode, prima le Patch</h1>
+<p class="note">Codice usa e getta per il ticket #16, da buttare. Pipeline della research #15: Patch (FH con k = 2·min, oppure Ward finché nessuna Patch è sotto min) → bordi condivisi semplificati con Douglas–Peucker (ε) → una triangolazione di Delaunay vincolata di tutto il Frame → punti di Steiner per max → colore del Tessel = media dei pixel dentro il triangolo.
+Le mesh sono precalcolate da <code>generate.cpp</code> (<code>make</code> in questa cartella) per i valori sui cursori; l'URL tiene la configurazione, quindi basta copiarlo per indicarne una.</p>
+
+<div class="wrap">
+  <div class="panel">
+    <div class="row"><div class="lbl">segmentazione</div><div class="seg" id="seg"></div></div>
+    <div class="row"><label>min tessel area <span id="vMin"></span></label><input id="min" type="range" min="0" max="5" step="1"></div>
+    <div class="row"><label>max tessel area <span id="vMax"></span></label><input id="max" type="range" min="0" max="3" step="1"></div>
+    <div class="row"><div class="lbl">punti per max</div><div class="seg" id="steiner"></div></div>
+    <div class="row"><div class="lbl">ε semplificazione bordi (px)</div><div class="seg" id="eps"></div></div>
+    <div class="row checks">
+      <label><input id="wire" type="checkbox"> wireframe</label>
+      <label><input id="bound" type="checkbox"> bordi delle Patch</label>
+    </div>
+    <div class="row checks">
+      <label><input id="showSrc" type="checkbox" checked> sorgente accanto</label>
+    </div>
+  </div>
+  <div class="views">
+    <div class="pair">
+      <canvas id="cv"></canvas>
+      <img class="src" id="src" src="../../tests/fixtures/fingers.png" alt="Frame sorgente: fingers.png">
+    </div>
+    <pre id="state"></pre>
+  </div>
+</div>
+
+<script>
+const MINS = [16, 32, 64, 128, 256, 512];
+const MAXES = [128, 512, 2048, 8192];
+const SEGS = { fh: "Felzenszwalb–Huttenlocher", ward: "Ward" };
+const STEINERS = { centroid: "centroidi dei triangoli > max", grid: "griglia triangolare + centroidi" };
+const EPSS = { "1.5": "1.5", "3.0": "3" };
+const W = 320, H = 240;
+
+const state = { seg: "fh", min: 2, max: 2, steiner: "centroid", eps: "1.5", wire: false, bound: false, showSrc: true };
+const cache = {}, pending = {};
+window.MESH = (key, m) => { cache[key] = m; if (pending[key]) { pending[key](); delete pending[key]; } };
+
+function readHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (p.has("seg") && SEGS[p.get("seg")]) state.seg = p.get("seg");
+  if (p.has("min")) { const i = MINS.indexOf(+p.get("min")); if (i >= 0) state.min = i; }
+  if (p.has("max")) { const i = MAXES.indexOf(+p.get("max")); if (i >= 0) state.max = i; }
+  if (p.has("steiner") && STEINERS[p.get("steiner")]) state.steiner = p.get("steiner");
+  if (p.has("eps") && EPSS[p.get("eps")]) state.eps = p.get("eps");
+  for (const k of ["wire", "bound", "showSrc"]) if (p.has(k)) state[k] = p.get(k) === "1";
+}
+function writeHash() {
+  const p = new URLSearchParams({ seg: state.seg, min: MINS[state.min], max: MAXES[state.max], steiner: state.steiner, eps: state.eps,
+    wire: +state.wire, bound: +state.bound, showSrc: +state.showSrc });
+  history.replaceState(null, "", "#" + p);
+}
+const key = () => `${state.seg}-${MINS[state.min]}-${MAXES[state.max]}-${state.steiner}-${state.eps}`;
+
+function load(k, done) {
+  if (cache[k]) return done();
+  pending[k] = done;
+  const s = document.createElement("script");
+  s.src = `data/${k}.js`;
+  s.onerror = () => { document.getElementById("state").innerHTML = `<span class="err">manca data/${k}.js: esegui make in questa cartella</span>`; };
+  document.head.appendChild(s);
+}
+
+function buttons(id, options, field) {
+  const el = document.getElementById(id);
+  el.innerHTML = "";
+  for (const [v, label] of Object.entries(options)) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.className = state[field] === v ? "on" : "";
+    b.onclick = () => { state[field] = v; update(); };
+    el.appendChild(b);
+  }
+}
+
+function stats(m) {
+  const areas = [];
+  for (let i = 0; i < m.t.length; i += 3) {
+    const a = m.t[i] * 2, b = m.t[i + 1] * 2, c = m.t[i + 2] * 2;
+    const ax = m.v[a] / 8, ay = m.v[a + 1] / 8, bx = m.v[b] / 8, by = m.v[b + 1] / 8, cx = m.v[c] / 8, cy = m.v[c + 1] / 8;
+    areas.push(Math.abs((bx - ax) * (cy - ay) - (by - ay) * (cx - ax)) / 2);
+  }
+  areas.sort((x, y) => x - y);
+  const q = f => areas[Math.min(areas.length - 1, Math.floor(f * areas.length))];
+  return { n: areas.length, sum: areas.reduce((s, a) => s + a, 0), p10: q(0.1), p50: q(0.5), p90: q(0.9), max: areas[areas.length - 1],
+           under1: areas.filter(a => a < 1).length, under4: areas.filter(a => a < 4).length };
+}
+
+function draw(m) {
+  const cv = document.getElementById("cv");
+  const S = 3;
+  cv.width = W * S; cv.height = H * S;
+  cv.style.width = Math.min(W * S, 960) + "px";
+  const g = cv.getContext("2d");
+  g.fillStyle = "#ff00ff"; g.fillRect(0, 0, cv.width, cv.height);  // magenta = not covered
+  const f = S / 8;
+  g.lineJoin = "round";
+  for (let i = 0, j = 0; i < m.t.length; i += 3, j += 6) {
+    const a = m.t[i] * 2, b = m.t[i + 1] * 2, c = m.t[i + 2] * 2;
+    const col = "#" + m.c.substr(j, 6);
+    g.beginPath();
+    g.moveTo(m.v[a] * f, m.v[a + 1] * f); g.lineTo(m.v[b] * f, m.v[b + 1] * f); g.lineTo(m.v[c] * f, m.v[c + 1] * f); g.closePath();
+    g.fillStyle = col; g.fill();
+    g.strokeStyle = col; g.lineWidth = 0.75; g.stroke();  // hides the anti-aliasing seams between Tessels
+  }
+  if (state.wire) {
+    g.strokeStyle = "rgba(20,20,20,0.55)"; g.lineWidth = 0.75;
+    g.beginPath();
+    for (let i = 0; i < m.t.length; i += 3) {
+      const a = m.t[i] * 2, b = m.t[i + 1] * 2, c = m.t[i + 2] * 2;
+      g.moveTo(m.v[a] * f, m.v[a + 1] * f); g.lineTo(m.v[b] * f, m.v[b + 1] * f); g.lineTo(m.v[c] * f, m.v[c + 1] * f); g.closePath();
+    }
+    g.stroke();
+  }
+  if (state.bound) {
+    g.strokeStyle = "#e11d48"; g.lineWidth = 2;
+    g.beginPath();
+    for (const ch of m.b) { g.moveTo(ch[0] * S, ch[1] * S); for (let k = 2; k < ch.length; k += 2) g.lineTo(ch[k] * S, ch[k + 1] * S); }
+    g.stroke();
+  }
+}
+
+function update() {
+  writeHash();
+  buttons("seg", SEGS, "seg"); buttons("steiner", STEINERS, "steiner"); buttons("eps", EPSS, "eps");
+  document.getElementById("min").value = state.min; document.getElementById("vMin").textContent = MINS[state.min] + " px²";
+  document.getElementById("max").value = state.max; document.getElementById("vMax").textContent = MAXES[state.max] + " px²";
+  for (const k of ["wire", "bound", "showSrc"]) document.getElementById(k).checked = state[k];
+  const src = document.getElementById("src");
+  src.style.display = state.showSrc ? "" : "none";
+  src.style.width = Math.min(W * 3, 960) + "px";
+  const k = key();
+  load(k, () => {
+    if (k !== key()) return;
+    const m = cache[k], s = stats(m);
+    draw(m);
+    document.getElementById("state").textContent =
+`configurazione  ${k}
+Patch           ${m.patches}
+Tessel          ${m.tessels}   (punti di Steiner per max: ${m.steiner})
+area Tessel     p10 ${s.p10.toFixed(1)}  mediana ${s.p50.toFixed(1)}  p90 ${s.p90.toFixed(1)}  massima ${s.max.toFixed(0)} px²
+Tessel piccoli  ${s.under1} sotto 1 px², ${s.under4} sotto 4 px²
+copertura       somma delle aree ${s.sum.toFixed(0)} su ${W * H}
+tempo           ${m.ms} ms per Frame (una sola misura, -O3, indicativo)`;
+  });
+}
+
+document.getElementById("min").oninput = e => { state.min = +e.target.value; update(); };
+document.getElementById("max").oninput = e => { state.max = +e.target.value; update(); };
+for (const k of ["wire", "bound", "showSrc"]) document.getElementById(k).onchange = e => { state[k] = e.target.checked; update(); };
+readHash();
+update();
+</script>
+</body>
+</html>
