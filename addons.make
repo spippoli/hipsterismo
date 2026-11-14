@@ -1,6 +1,7 @@
-ofxOpenCv
-ofxXmlSettings
 ofxCv
 ofxDelaunay
+ofxGui
 ofxMSACore
 ofxMSAInterpolator
+ofxOpenCv
+ofxXmlSettings
