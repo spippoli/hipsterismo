@@ -8,6 +8,8 @@ The code depends on the following addons:
 * ofxCv 
 * ofxDelaunay 
 * ofxGui
+* ofxMSACore
+* ofxMSAInterpolator
 * ofxOpenCv
 * ofxXmlSettings
 
