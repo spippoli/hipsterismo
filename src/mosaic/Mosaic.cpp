@@ -6,11 +6,12 @@ MosaicMaker::MosaicMaker() {
     parameters.add(threshold2.set("second threshold", 20, 0, 400));
     parameters.add(blurIterations.set("blur iteration", 9, 1, 31));
     parameters.add(resolution.set("interpolation resolution", 1000, 2, 10000));
+    parameters.add(minArea.set("min area", 2, 0, 10000));
+    parameters.add(maxArea.set("max area", 400000, 0, 2000000));
+    parameters.add(findHoles.set("find holes", true));
 
-    finder.setMinArea(2);
-    finder.setMaxArea(400000);
+    // Canny output is binary (0 or 255), so any threshold in between is equivalent.
     finder.setThreshold(128);
-    finder.setFindHoles(true);
 }
 
 Mosaic MosaicMaker::make(const ofPixels& frame) {
@@ -30,6 +31,9 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
         cv::GaussianBlur(gray, gray, cv::Size(i, i), 1);
     }
     ofxCv::Canny(gray, edges, threshold1, threshold2, 3, false);
+    finder.setMinArea(minArea);
+    finder.setMaxArea(maxArea);
+    finder.setFindHoles(findHoles);
     finder.findContours(edges);
     mosaic.contours = finder.getPolylines();
 

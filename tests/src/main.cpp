@@ -50,6 +50,7 @@ class ofApp : public ofxUnitTestsApp {
         testTesselColourComesFromFrame();
         testTesselsStayInsideFrame();
         testDeterminism();
+        testContourAreaFilter();
         testPixelFormats();
         testToMesh();
     }
@@ -121,6 +122,15 @@ class ofApp : public ofxUnitTestsApp {
         Mosaic fresh = MosaicMaker().make(frame);
         ofxTest(sameMosaic(first, again), "same maker, same Frame: same Mosaic");
         ofxTest(sameMosaic(first, fresh), "fresh maker, same Frame: same Mosaic");
+    }
+
+    void testContourAreaFilter() {
+        ofPixels frame = rectangleFrame(background, foreground); // 80x60 rectangle
+        MosaicMaker maker;
+        maker.minArea = 10000;
+        Mosaic mosaic = maker.make(frame);
+        ofxTest(mosaic.contours.empty() && mosaic.tessels.empty(),
+                "Contours smaller than min area are ignored");
     }
 
     void testPixelFormats() {

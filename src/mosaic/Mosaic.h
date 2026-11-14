@@ -52,6 +52,9 @@ public:
     ofParameter<int> threshold2;
     ofParameter<int> blurIterations;
     ofParameter<int> resolution;
+    ofParameter<int> minArea;
+    ofParameter<int> maxArea;
+    ofParameter<bool> findHoles;
 
 private:
     ofPixels rgb;
