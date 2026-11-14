@@ -41,8 +41,8 @@ ofMesh toMesh(const Mosaic& mosaic);
 //
 // Frames may be grayscale, RGB or RGBA. The Tessels always tile the whole
 // Frame rectangle, (0,0) to (width,height), even where there are no Contours;
-// only an empty Frame gives an empty Mosaic. Each Tessel takes the Frame colour
-// at its centroid.
+// only an empty Frame gives an empty Mosaic. Each Tessel takes the mean colour
+// of the 5x5 pixels around its centroid.
 class MosaicMaker {
 public:
     MosaicMaker();

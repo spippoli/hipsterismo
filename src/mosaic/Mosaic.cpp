@@ -14,6 +14,23 @@ glm::vec2 cellJitter(int cx, int cy) {
     return {((h & 0xffff) / 65535.f - 0.5f) * 0.8f, (((h >> 16) & 0xffff) / 65535.f - 0.5f) * 0.8f};
 }
 
+// Mean colour of the 5x5 pixels around (x, y), clipped to the Frame.
+ofColor blockMean(const ofPixels& rgb, int x, int y) {
+    const int w = rgb.getWidth();
+    const int h = rgb.getHeight();
+    int r = 0, g = 0, b = 0, n = 0;
+    for (int yy = std::max(0, y - 2); yy <= std::min(h - 1, y + 2); yy++) {
+        for (int xx = std::max(0, x - 2); xx <= std::min(w - 1, x + 2); xx++) {
+            ofColor c = rgb.getColor(xx, yy);
+            r += c.r;
+            g += c.g;
+            b += c.b;
+            n++;
+        }
+    }
+    return ofColor(r / n, g / n, b / n);
+}
+
 } // namespace
 
 MosaicMaker::MosaicMaker() {
@@ -133,7 +150,7 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
         int x = ofClamp(int(center.x), 0, width - 1);
         int y = ofClamp(int(center.y), 0, height - 1);
         mosaic.tessels.push_back({{face.getVertex(0), face.getVertex(1), face.getVertex(2)},
-                                  rgb.getColor(x, y)});
+                                  blockMean(rgb, x, y)});
     }
     return mosaic;
 }

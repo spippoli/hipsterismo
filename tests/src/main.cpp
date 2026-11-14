@@ -53,10 +53,20 @@ bool coversFrame(const Mosaic& mosaic, double width, double height) {
     return false;
 }
 
-// The colour a Tessel should have: the Frame pixel at its centroid.
+// The colour a Tessel should have: mean of the 5x5 pixels around its centroid.
 ofColor expectedColour(const ofPixels& frame, const Tessel& tessel) {
     glm::vec3 c = centroid(tessel);
-    return frame.getColor(ofClamp(int(c.x), 0, frame.getWidth() - 1), ofClamp(int(c.y), 0, frame.getHeight() - 1));
+    int cx = ofClamp(int(c.x), 0, frame.getWidth() - 1);
+    int cy = ofClamp(int(c.y), 0, frame.getHeight() - 1);
+    int r = 0, g = 0, b = 0, n = 0;
+    for (int y = cy - 2; y <= cy + 2; y++) {
+        for (int x = cx - 2; x <= cx + 2; x++) {
+            if (x < 0 || y < 0 || x >= int(frame.getWidth()) || y >= int(frame.getHeight())) continue;
+            ofColor p = frame.getColor(x, y);
+            r += p.r; g += p.g; b += p.b; n++;
+        }
+    }
+    return ofColor(r / n, g / n, b / n);
 }
 
 std::set<std::pair<float, float>> vertices(const Mosaic& mosaic) {
@@ -165,7 +175,7 @@ class ofApp : public ofxUnitTestsApp {
             allMatch = allMatch && tessel.color == expectedColour(frame, tessel);
             foundForeground = foundForeground || tessel.color == foreground;
         }
-        ofxTest(allMatch, "every Tessel takes the Frame colour at its centroid");
+        ofxTest(allMatch, "every Tessel takes the mean Frame colour around its centroid");
         ofxTest(foundForeground, "some Tessels take the rectangle's colour");
     }
 
@@ -189,7 +199,7 @@ class ofApp : public ofxUnitTestsApp {
             coloursMatch = coloursMatch && tessel.color == expectedColour(frame, tessel);
         }
         ofxTest(inside, "every Tessel vertex lies inside the Frame");
-        ofxTest(coloursMatch, "border Tessels take the Frame colour at their centroid");
+        ofxTest(coloursMatch, "border Tessels take the mean Frame colour around their centroid");
     }
 
     void testDeterminism() {
