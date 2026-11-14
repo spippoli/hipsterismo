@@ -126,6 +126,7 @@ class ofApp : public ofxUnitTestsApp {
         testDeterminism();
         testPersistence();
         testStabilityUnderNoise();
+        testSplineMode();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -258,6 +259,30 @@ class ofApp : public ofxUnitTestsApp {
         kept /= frames;
         ofLogNotice("stability") << ofToString(kept * 100, 1) << "% of vertices kept between noisy Frames";
         ofxTest(kept >= 0.9, "a static noisy scene keeps at least 90% of its vertices Frame to Frame");
+    }
+
+    void testSplineMode() {
+        ofPixels rectangle = rectangleFrame(background, foreground);
+        ofPixels uniform = solidFrame(160, 120, background);
+        MosaicMaker spline;
+        spline.stableVertices = false;
+        Mosaic mosaic = spline.make(rectangle);
+
+        ofxTest(coversFrame(mosaic, 160, 120), "spline mode: Tessels cover the whole Frame");
+        bool pixelColours = true;
+        for (const Tessel& tessel : mosaic.tessels) {
+            glm::vec3 c = centroid(tessel);
+            pixelColours = pixelColours && tessel.color == rectangle.getColor(
+                ofClamp(int(c.x), 0, 159), ofClamp(int(c.y), 0, 119));
+        }
+        ofxTest(pixelColours, "spline mode: every Tessel takes the Frame pixel at its centroid");
+        ofxTest(!sameMosaic(mosaic, MosaicMaker().make(rectangle)), "spline and stable modes give different Mosaics");
+
+        spline.make(rectangle);
+        MosaicMaker freshSpline;
+        freshSpline.stableVertices = false;
+        ofxTest(sameMosaic(spline.make(uniform), freshSpline.make(uniform)),
+                "spline mode: the Mosaic depends only on the current Frame");
     }
 
     void testContourAreaFilter() {

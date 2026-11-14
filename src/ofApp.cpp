@@ -134,6 +134,13 @@ void ofApp::keyPressed(int key){
             drawHipster = !drawHipster;
         }
             break;
+        case 's':
+        {
+            // Switch between stable (cell-based) and spline vertex selection.
+            mosaicMaker.stableVertices = !mosaicMaker.stableVertices;
+            ofLogNotice("ofApp") << "vertices: " << (mosaicMaker.stableVertices ? "stable" : "spline");
+        }
+            break;
         case 'p':
         {
             ofImage snapshot;

@@ -8,6 +8,16 @@
 #include "ofMain.h"
 #include "ofxCv.h"
 #include "ofxDelaunay.h"
+// ofxMSAInterpolator's sampleAt() ends in a switch with no trailing return,
+// which OF's -Werror=return-type turns into a hard error.
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
+#endif
+#include "MSAInterpolator.h"
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 // One triangle of a Mosaic with its flat colour, in Frame pixel coordinates.
 struct Tessel {
@@ -24,25 +34,31 @@ struct Mosaic {
 // Flat-coloured triangle mesh of the Mosaic, ready to draw in Frame space.
 ofMesh toMesh(const Mosaic& mosaic);
 
-// Turns a sequence of Frames into Mosaics that stay stable from one Frame to
-// the next.
+// Turns a sequence of Frames into Mosaics.
 //
-// Vertices are not taken from the Contours directly: the Frame is divided into
-// cells of `cell size` pixels, every cell a Contour passes through contributes
-// one vertex at a fixed position inside it, and a cell stays active for
-// `persistence` Frames after its Contour has left. Sensor noise therefore only
-// moves a vertex when a Contour enters or leaves a cell.
+// Two ways of choosing the vertices, picked by `stable vertices`:
 //
-// make() depends on the Frames seen so far (only through the active cells):
-// the same sequence of Frames and parameters always gives the same Mosaics.
-// Call reset() when the next Frame does not follow the previous one (new
-// source, seek); a change of Frame size or cell size resets automatically.
-// With persistence 0, make() is a pure function of the Frame.
+// - Stable (default): the Mosaic stays still from one Frame to the next.
+//   Vertices are not taken from the Contours directly: the Frame is divided into
+//   cells of `cell size` pixels, every cell a Contour passes through contributes
+//   one vertex at a fixed position inside it, and a cell stays active for
+//   `persistence` Frames after its Contour has left. Sensor noise therefore
+//   only moves a vertex when a Contour enters or leaves a cell. Each Tessel
+//   takes the mean colour of the 5x5 pixels around its centroid.
+// - Spline (the original look): all Contours are joined into one spline and
+//   sampled `interpolation resolution` times. Vertices move with every bit of
+//   noise. Each Tessel takes the Frame colour at its centroid.
+//
+// In stable mode make() depends on the Frames seen so far (only through the
+// active cells): the same sequence of Frames and parameters always gives the
+// same Mosaics. Call reset() when the next Frame does not follow the previous
+// one (new source, seek); a change of Frame size, cell size or mode resets
+// automatically. With persistence 0, or in spline mode, make() is a pure
+// function of the Frame.
 //
 // Frames may be grayscale, RGB or RGBA. The Tessels always tile the whole
 // Frame rectangle, (0,0) to (width,height), even where there are no Contours;
-// only an empty Frame gives an empty Mosaic. Each Tessel takes the mean colour
-// of the 5x5 pixels around its centroid.
+// only an empty Frame gives an empty Mosaic.
 class MosaicMaker {
 public:
     MosaicMaker();
@@ -55,8 +71,10 @@ public:
     ofParameter<int> threshold1;
     ofParameter<int> threshold2;
     ofParameter<int> blurIterations;
+    ofParameter<bool> stableVertices;
     ofParameter<int> cellSize;
     ofParameter<int> persistence;
+    ofParameter<int> resolution;
     ofParameter<int> minArea;
     ofParameter<int> maxArea;
     ofParameter<bool> findHoles;
@@ -67,10 +85,12 @@ private:
     // Frames since a Contour last passed through each active cell.
     std::map<Cell, int> cellAge;
     int stateCellSize = 0;
+    bool stateStable = false;
     int stateWidth = 0, stateHeight = 0;
 
     ofPixels rgb;
     cv::Mat gray, edges;
     ofxCv::ContourFinder finder;
+    msa::Interpolator2D interpolator;
     ofxDelaunay delaunay;
 };

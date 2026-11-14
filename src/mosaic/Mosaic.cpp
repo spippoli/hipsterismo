@@ -38,8 +38,10 @@ MosaicMaker::MosaicMaker() {
     parameters.add(threshold1.set("first threshold", 0, 0, 400));
     parameters.add(threshold2.set("second threshold", 20, 0, 400));
     parameters.add(blurIterations.set("blur iteration", 9, 1, 31));
+    parameters.add(stableVertices.set("stable vertices", true));
     parameters.add(cellSize.set("cell size", 5, 2, 40));
     parameters.add(persistence.set("persistence", 2, 0, 30));
+    parameters.add(resolution.set("interpolation resolution", 1000, 2, 10000));
     parameters.add(minArea.set("min area", 2, 0, 10000));
     parameters.add(maxArea.set("max area", 400000, 0, 2000000));
     parameters.add(findHoles.set("find holes", true));
@@ -79,33 +81,37 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
     const int width = rgb.getWidth();
     const int height = rgb.getHeight();
     const int g = std::max(1, cellSize.get());
-    if (width != stateWidth || height != stateHeight || g != stateCellSize) {
+    const bool stable = stableVertices;
+    if (width != stateWidth || height != stateHeight || g != stateCellSize || stable != stateStable) {
         reset();
         stateWidth = width;
         stateHeight = height;
         stateCellSize = g;
+        stateStable = stable;
     }
 
-    // Cells the Contours pass through now are fresh; the others age and are
-    // dropped once older than `persistence` Frames.
-    std::set<Cell> touched;
-    for (const ofPolyline& contour : mosaic.contours) {
-        if (contour.size() == 0) continue;
-        ofPolyline closed = contour;
-        closed.addVertex(contour[0]);
-        for (const auto& v : closed.getResampledBySpacing(1)) {
-            touched.insert({int(v.x) / g, int(v.y) / g});
+    if (stable) {
+        // Cells the Contours pass through now are fresh; the others age and
+        // are dropped once older than `persistence` Frames.
+        std::set<Cell> touched;
+        for (const ofPolyline& contour : mosaic.contours) {
+            if (contour.size() == 0) continue;
+            ofPolyline closed = contour;
+            closed.addVertex(contour[0]);
+            for (const auto& v : closed.getResampledBySpacing(1)) {
+                touched.insert({int(v.x) / g, int(v.y) / g});
+            }
         }
-    }
-    for (auto it = cellAge.begin(); it != cellAge.end();) {
-        if (!touched.count(it->first) && ++it->second > persistence) {
-            it = cellAge.erase(it);
-        } else {
-            ++it;
+        for (auto it = cellAge.begin(); it != cellAge.end();) {
+            if (!touched.count(it->first) && ++it->second > persistence) {
+                it = cellAge.erase(it);
+            } else {
+                ++it;
+            }
         }
-    }
-    for (const Cell& cell : touched) {
-        cellAge[cell] = 0;
+        for (const Cell& cell : touched) {
+            cellAge[cell] = 0;
+        }
     }
 
     delaunay.reset();
@@ -132,9 +138,27 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
         addPoint(0, height - t * height);
     }
 
-    for (const auto& [cell, age] : cellAge) {
-        glm::vec2 p = (glm::vec2(cell.first, cell.second) + 0.5f + cellJitter(cell.first, cell.second)) * float(g);
-        addPoint(ofClamp(p.x, 0, width), ofClamp(p.y, 0, height));
+    if (stable) {
+        for (const auto& [cell, age] : cellAge) {
+            glm::vec2 p = (glm::vec2(cell.first, cell.second) + 0.5f + cellJitter(cell.first, cell.second)) * float(g);
+            addPoint(ofClamp(p.x, 0, width), ofClamp(p.y, 0, height));
+        }
+    } else {
+        // One spline through all Contour points, sampled uniformly. It
+        // overshoots past the Frame where it jumps between Contours; keep
+        // every sample inside so Tessels stay in the Frame.
+        interpolator.clear();
+        for (const auto& contour : finder.getContours()) {
+            for (const auto& point : contour) {
+                interpolator.push_back(ofxCv::toOf(point));
+            }
+        }
+        if (interpolator.size() >= 3) {
+            for (float step = 0.0; step < 1.0; step += 1 / (float)resolution) {
+                glm::vec2 sample = interpolator.sampleAt(step);
+                addPoint(ofClamp(sample.x, 0.f, float(width)), ofClamp(sample.y, 0.f, float(height)));
+            }
+        }
     }
     delaunay.triangulate();
 
@@ -150,7 +174,7 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
         int x = ofClamp(int(center.x), 0, width - 1);
         int y = ofClamp(int(center.y), 0, height - 1);
         mosaic.tessels.push_back({{face.getVertex(0), face.getVertex(1), face.getVertex(2)},
-                                  blockMean(rgb, x, y)});
+                                  stable ? blockMean(rgb, x, y) : rgb.getColor(x, y)});
     }
     return mosaic;
 }
