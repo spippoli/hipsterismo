@@ -7,10 +7,14 @@
 #include "ofxCv.h"
 // ofxMSAInterpolator's sampleAt() ends in a switch with no trailing return,
 // which OF's -Werror=return-type turns into a hard error.
+#if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wreturn-type"
+#endif
 #include "MSAInterpolator.h"
+#if defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
 #include "ofxDelaunay.h"
 
 //#define LIVE_INPUT
