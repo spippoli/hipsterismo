@@ -12,6 +12,10 @@ _Avoid_: source, input, image (when the role is meant)
 An outline of an edge found in a Frame; the Tessels are built from points along the Contours.
 _Avoid_: edge, outline, blob
 
+**Patch**:
+A connected region of a Frame whose pixels have similar colour; the Tessels cover it without crossing its boundary.
+_Avoid_: region, segment, superpixel, blob
+
 **Tessel**:
 One triangle of a Mosaic together with its single flat colour, taken from the Frame where the triangle lies.
 _Avoid_: face, triangle (when the colour is part of the meaning), tile
