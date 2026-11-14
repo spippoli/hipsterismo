@@ -116,6 +116,12 @@ bool sameMosaic(const Mosaic& a, const Mosaic& b) {
 
 } // namespace
 
+// The tests below that are not about spline mode exercise stable mode, which
+// is not the default.
+struct StableMaker : MosaicMaker {
+    StableMaker() { stableVertices = true; }
+};
+
 class ofApp : public ofxUnitTestsApp {
     void run() {
         testEmptyFrame();
@@ -133,14 +139,14 @@ class ofApp : public ofxUnitTestsApp {
     }
 
     void testEmptyFrame() {
-        MosaicMaker maker;
+        StableMaker maker;
         Mosaic mosaic = maker.make(ofPixels());
         ofxTest(mosaic.tessels.empty(), "empty Frame gives no Tessels");
         ofxTest(mosaic.contours.empty(), "empty Frame gives no Contours");
     }
 
     void testFrameWithoutContours() {
-        MosaicMaker maker;
+        StableMaker maker;
         Mosaic mosaic = maker.make(solidFrame(160, 120, background));
         ofxTest(mosaic.contours.empty(), "uniform Frame gives no Contours");
         ofxTest(coversFrame(mosaic, 160, 120), "uniform Frame is still covered by Tessels");
@@ -153,17 +159,17 @@ class ofApp : public ofxUnitTestsApp {
     void testMosaicCoversFrame() {
         // Contours well inside the Frame: without help their hull leaves the borders uncovered.
         ofPixels frame = rectangleFrame(background, foreground);
-        Mosaic mosaic = MosaicMaker().make(frame);
+        Mosaic mosaic = StableMaker().make(frame);
         ofxTest(coversFrame(mosaic, 160, 120), "Tessels cover the whole Frame");
 
         ofPixels nearBorder = solidFrame(160, 120, background);
         for (int y = 6; y < 114; y++) for (int x = 6; x < 154; x++) nearBorder.setColor(x, y, foreground);
-        ofxTest(coversFrame(MosaicMaker().make(nearBorder), 160, 120),
+        ofxTest(coversFrame(StableMaker().make(nearBorder), 160, 120),
                   "Tessels cover the whole Frame near the borders too");
     }
 
     void testTesselColourComesFromFrame() {
-        MosaicMaker maker;
+        StableMaker maker;
         ofPixels frame = rectangleFrame(background, foreground);
         Mosaic mosaic = maker.make(frame);
 
@@ -188,7 +194,7 @@ class ofApp : public ofxUnitTestsApp {
                 frame.setColor(x, y, foreground);
             }
         }
-        Mosaic mosaic = MosaicMaker().make(frame);
+        Mosaic mosaic = StableMaker().make(frame);
         ofxTest(!mosaic.tessels.empty(), "near-border Frame has Tessels");
 
         bool inside = true;
@@ -208,22 +214,22 @@ class ofApp : public ofxUnitTestsApp {
         ofPixels uniform = solidFrame(160, 120, background);
         std::vector<ofPixels> sequence = {rectangle, uniform, rectangle, withNoise(rectangle, 1)};
 
-        MosaicMaker a, b;
+        StableMaker a, b;
         bool same = true;
         for (const ofPixels& frame : sequence) same = same && sameMosaic(a.make(frame), b.make(frame));
         ofxTest(same, "same sequence of Frames: same Mosaics");
 
         a.reset();
-        ofxTest(sameMosaic(a.make(uniform), MosaicMaker().make(uniform)),
+        ofxTest(sameMosaic(a.make(uniform), StableMaker().make(uniform)),
                 "after reset() the maker behaves like a fresh one");
     }
 
     void testPersistence() {
         ofPixels rectangle = rectangleFrame(background, foreground);
         ofPixels uniform = solidFrame(160, 120, background);
-        Mosaic uniformOnly = MosaicMaker().make(uniform);
+        Mosaic uniformOnly = StableMaker().make(uniform);
 
-        MosaicMaker maker; // persistence 2 by default
+        StableMaker maker; // persistence 2 by default
         ofxTestEq(maker.persistence.get(), 2, "default persistence is 2 Frames");
         Mosaic withRectangle = maker.make(rectangle);
         Mosaic gone1 = maker.make(uniform);
@@ -233,7 +239,7 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(containsVertices(gone2, withRectangle), "vertices survive 2 Frames after their Contour left");
         ofxTest(sameMosaic(gone3, uniformOnly), "vertices are dropped after `persistence` Frames");
 
-        MosaicMaker memoryless;
+        StableMaker memoryless;
         memoryless.persistence = 0;
         memoryless.make(rectangle);
         ofxTest(sameMosaic(memoryless.make(uniform), uniformOnly),
@@ -247,7 +253,7 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(scene.isAllocated(), "fixture fingers.png loads");
         if (!scene.isAllocated()) return;
 
-        MosaicMaker maker;
+        StableMaker maker;
         Mosaic previous = maker.make(withNoise(scene, 0));
         double kept = 0;
         const int frames = 10;
@@ -265,7 +271,7 @@ class ofApp : public ofxUnitTestsApp {
         ofPixels rectangle = rectangleFrame(background, foreground);
         ofPixels uniform = solidFrame(160, 120, background);
         MosaicMaker spline;
-        spline.stableVertices = false;
+        ofxTest(!spline.stableVertices, "spline mode is the default");
         Mosaic mosaic = spline.make(rectangle);
 
         ofxTest(coversFrame(mosaic, 160, 120), "spline mode: Tessels cover the whole Frame");
@@ -276,18 +282,17 @@ class ofApp : public ofxUnitTestsApp {
                 ofClamp(int(c.x), 0, 159), ofClamp(int(c.y), 0, 119));
         }
         ofxTest(pixelColours, "spline mode: every Tessel takes the Frame pixel at its centroid");
-        ofxTest(!sameMosaic(mosaic, MosaicMaker().make(rectangle)), "spline and stable modes give different Mosaics");
+        ofxTest(!sameMosaic(mosaic, StableMaker().make(rectangle)), "spline and stable modes give different Mosaics");
 
         spline.make(rectangle);
         MosaicMaker freshSpline;
-        freshSpline.stableVertices = false;
         ofxTest(sameMosaic(spline.make(uniform), freshSpline.make(uniform)),
                 "spline mode: the Mosaic depends only on the current Frame");
     }
 
     void testContourAreaFilter() {
         ofPixels frame = rectangleFrame(background, foreground); // 80x60 rectangle
-        MosaicMaker maker;
+        StableMaker maker;
         maker.minArea = 10000;
         Mosaic mosaic = maker.make(frame);
         ofxTest(mosaic.contours.empty(), "Contours smaller than min area are ignored");
@@ -298,16 +303,16 @@ class ofApp : public ofxUnitTestsApp {
         ofPixels rgb = rectangleFrame(background, foreground);
         ofPixels rgba = rgb;
         rgba.setImageType(OF_IMAGE_COLOR_ALPHA);
-        ofxTest(sameMosaic(MosaicMaker().make(rgb), MosaicMaker().make(rgba)),
+        ofxTest(sameMosaic(StableMaker().make(rgb), StableMaker().make(rgba)),
                 "RGBA Frame gives the same Mosaic as RGB");
 
         ofPixels gray = rgb;
         gray.setImageType(OF_IMAGE_GRAYSCALE);
         ofPixels grayAsRgb = gray;
         grayAsRgb.setImageType(OF_IMAGE_COLOR);
-        Mosaic fromGray = MosaicMaker().make(gray);
+        Mosaic fromGray = StableMaker().make(gray);
         ofxTest(!fromGray.tessels.empty(), "grayscale Frame has Tessels");
-        ofxTest(sameMosaic(fromGray, MosaicMaker().make(grayAsRgb)),
+        ofxTest(sameMosaic(fromGray, StableMaker().make(grayAsRgb)),
                 "grayscale Frame gives the same Mosaic as its RGB equivalent");
 
         bool allGray = true;
@@ -318,7 +323,7 @@ class ofApp : public ofxUnitTestsApp {
     }
 
     void testToMesh() {
-        Mosaic mosaic = MosaicMaker().make(rectangleFrame(background, foreground));
+        Mosaic mosaic = StableMaker().make(rectangleFrame(background, foreground));
         ofMesh mesh = toMesh(mosaic);
         ofxTestEq(mesh.getNumVertices(), mosaic.tessels.size() * 3, "three vertices per Tessel");
         ofxTestEq(mesh.getNumColors(), mosaic.tessels.size() * 3, "one colour per vertex");

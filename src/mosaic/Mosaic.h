@@ -38,16 +38,16 @@ ofMesh toMesh(const Mosaic& mosaic);
 //
 // Two ways of choosing the vertices, picked by `stable vertices`:
 //
-// - Stable (default): the Mosaic stays still from one Frame to the next.
+// - Spline (default, the original look): all Contours are joined into one
+//   spline and sampled `interpolation resolution` times. Vertices move with
+//   every bit of noise. Each Tessel takes the Frame colour at its centroid.
+// - Stable: the Mosaic stays still from one Frame to the next.
 //   Vertices are not taken from the Contours directly: the Frame is divided into
 //   cells of `cell size` pixels, every cell a Contour passes through contributes
 //   one vertex at a fixed position inside it, and a cell stays active for
 //   `persistence` Frames after its Contour has left. Sensor noise therefore
 //   only moves a vertex when a Contour enters or leaves a cell. Each Tessel
 //   takes the mean colour of the 5x5 pixels around its centroid.
-// - Spline (the original look): all Contours are joined into one spline and
-//   sampled `interpolation resolution` times. Vertices move with every bit of
-//   noise. Each Tessel takes the Frame colour at its centroid.
 //
 // In stable mode make() depends on the Frames seen so far (only through the
 // active cells): the same sequence of Frames and parameters always gives the
