@@ -3,6 +3,8 @@
 #include "ofxUnitTests.h"
 #include "Mosaic.h"
 
+#include <set>
+
 namespace {
 
 const ofColor background(40, 80, 160);
@@ -51,6 +53,56 @@ bool coversFrame(const Mosaic& mosaic, double width, double height) {
     return false;
 }
 
+// The colour a Tessel should have: mean of the 5x5 pixels around its centroid.
+ofColor expectedColour(const ofPixels& frame, const Tessel& tessel) {
+    glm::vec3 c = centroid(tessel);
+    int cx = ofClamp(int(c.x), 0, frame.getWidth() - 1);
+    int cy = ofClamp(int(c.y), 0, frame.getHeight() - 1);
+    int r = 0, g = 0, b = 0, n = 0;
+    for (int y = cy - 2; y <= cy + 2; y++) {
+        for (int x = cx - 2; x <= cx + 2; x++) {
+            if (x < 0 || y < 0 || x >= int(frame.getWidth()) || y >= int(frame.getHeight())) continue;
+            ofColor p = frame.getColor(x, y);
+            r += p.r; g += p.g; b += p.b; n++;
+        }
+    }
+    return ofColor(r / n, g / n, b / n);
+}
+
+std::set<std::pair<float, float>> vertices(const Mosaic& mosaic) {
+    std::set<std::pair<float, float>> result;
+    for (const Tessel& tessel : mosaic.tessels) {
+        for (const glm::vec3& v : tessel.triangle) result.insert({v.x, v.y});
+    }
+    return result;
+}
+
+// Fraction of the vertices of `before` found at exactly the same place in `after`.
+double keptVertices(const Mosaic& before, const Mosaic& after) {
+    auto a = vertices(before), b = vertices(after);
+    size_t kept = 0;
+    for (const auto& v : a) kept += b.count(v);
+    return a.empty() ? 1.0 : double(kept) / a.size();
+}
+
+bool containsVertices(const Mosaic& outer, const Mosaic& inner) {
+    auto o = vertices(outer);
+    for (const auto& v : vertices(inner)) {
+        if (!o.count(v)) return false;
+    }
+    return true;
+}
+
+// Static scene + camera-like sensor noise (+-4 per channel), reproducible per seed.
+ofPixels withNoise(const ofPixels& frame, int seed) {
+    ofPixels noisy = frame;
+    ofSeedRandom(seed);
+    for (auto px : noisy.getPixelsIter()) {
+        for (int c = 0; c < 3; c++) px[c] = ofClamp(px[c] + ofRandom(-4, 4), 0, 255);
+    }
+    return noisy;
+}
+
 bool sameMosaic(const Mosaic& a, const Mosaic& b) {
     if (a.tessels.size() != b.tessels.size()) return false;
     for (size_t i = 0; i < a.tessels.size(); i++) {
@@ -72,6 +124,9 @@ class ofApp : public ofxUnitTestsApp {
         testTesselColourComesFromFrame();
         testTesselsStayInsideFrame();
         testDeterminism();
+        testPersistence();
+        testStabilityUnderNoise();
+        testSplineMode();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -118,18 +173,15 @@ class ofApp : public ofxUnitTestsApp {
         bool allMatch = true;
         bool foundForeground = false;
         for (const Tessel& tessel : mosaic.tessels) {
-            glm::vec3 c = centroid(tessel);
-            ofColor expected = frame.getColor(int(c.x), int(c.y));
-            allMatch = allMatch && tessel.color == expected;
+            allMatch = allMatch && tessel.color == expectedColour(frame, tessel);
             foundForeground = foundForeground || tessel.color == foreground;
         }
-        ofxTest(allMatch, "every Tessel takes the Frame colour at its centroid");
+        ofxTest(allMatch, "every Tessel takes the mean Frame colour around its centroid");
         ofxTest(foundForeground, "some Tessels take the rectangle's colour");
     }
 
     void testTesselsStayInsideFrame() {
-        // A rectangle close to every border: resampling the Contours overshoots
-        // past the Frame's edges unless it is kept inside.
+        // A rectangle close to every border: its Contour cells reach the border.
         ofPixels frame = solidFrame(160, 120, background);
         for (int y = 6; y < 114; y++) {
             for (int x = 6; x < 154; x++) {
@@ -145,21 +197,92 @@ class ofApp : public ofxUnitTestsApp {
             for (const glm::vec3& v : tessel.triangle) {
                 inside = inside && v.x >= 0 && v.y >= 0 && v.x <= 160 && v.y <= 120;
             }
-            glm::vec3 c = centroid(tessel);
-            coloursMatch = coloursMatch && tessel.color == frame.getColor(int(c.x), int(c.y));
+            coloursMatch = coloursMatch && tessel.color == expectedColour(frame, tessel);
         }
         ofxTest(inside, "every Tessel vertex lies inside the Frame");
-        ofxTest(coloursMatch, "border Tessels take the Frame colour at their centroid");
+        ofxTest(coloursMatch, "border Tessels take the mean Frame colour around their centroid");
     }
 
     void testDeterminism() {
-        ofPixels frame = rectangleFrame(background, foreground);
+        ofPixels rectangle = rectangleFrame(background, foreground);
+        ofPixels uniform = solidFrame(160, 120, background);
+        std::vector<ofPixels> sequence = {rectangle, uniform, rectangle, withNoise(rectangle, 1)};
+
+        MosaicMaker a, b;
+        bool same = true;
+        for (const ofPixels& frame : sequence) same = same && sameMosaic(a.make(frame), b.make(frame));
+        ofxTest(same, "same sequence of Frames: same Mosaics");
+
+        a.reset();
+        ofxTest(sameMosaic(a.make(uniform), MosaicMaker().make(uniform)),
+                "after reset() the maker behaves like a fresh one");
+    }
+
+    void testPersistence() {
+        ofPixels rectangle = rectangleFrame(background, foreground);
+        ofPixels uniform = solidFrame(160, 120, background);
+        Mosaic uniformOnly = MosaicMaker().make(uniform);
+
+        MosaicMaker maker; // persistence 2 by default
+        ofxTestEq(maker.persistence.get(), 2, "default persistence is 2 Frames");
+        Mosaic withRectangle = maker.make(rectangle);
+        Mosaic gone1 = maker.make(uniform);
+        Mosaic gone2 = maker.make(uniform);
+        Mosaic gone3 = maker.make(uniform);
+        ofxTest(containsVertices(gone1, withRectangle), "vertices survive 1 Frame after their Contour left");
+        ofxTest(containsVertices(gone2, withRectangle), "vertices survive 2 Frames after their Contour left");
+        ofxTest(sameMosaic(gone3, uniformOnly), "vertices are dropped after `persistence` Frames");
+
+        MosaicMaker memoryless;
+        memoryless.persistence = 0;
+        memoryless.make(rectangle);
+        ofxTest(sameMosaic(memoryless.make(uniform), uniformOnly),
+                "with persistence 0 the Mosaic depends only on the current Frame");
+    }
+
+    void testStabilityUnderNoise() {
+        // A real camera-like scene that does not move: only sensor noise changes.
+        ofPixels scene;
+        ofLoadImage(scene, ofFilePath::join(ofFilePath::getCurrentExeDir(), "../fixtures/fingers.png"));
+        ofxTest(scene.isAllocated(), "fixture fingers.png loads");
+        if (!scene.isAllocated()) return;
+
         MosaicMaker maker;
-        Mosaic first = maker.make(frame);
-        Mosaic again = maker.make(frame);
-        Mosaic fresh = MosaicMaker().make(frame);
-        ofxTest(sameMosaic(first, again), "same maker, same Frame: same Mosaic");
-        ofxTest(sameMosaic(first, fresh), "fresh maker, same Frame: same Mosaic");
+        Mosaic previous = maker.make(withNoise(scene, 0));
+        double kept = 0;
+        const int frames = 10;
+        for (int i = 1; i <= frames; i++) {
+            Mosaic current = maker.make(withNoise(scene, i));
+            kept += keptVertices(previous, current);
+            previous = current;
+        }
+        kept /= frames;
+        ofLogNotice("stability") << ofToString(kept * 100, 1) << "% of vertices kept between noisy Frames";
+        ofxTest(kept >= 0.9, "a static noisy scene keeps at least 90% of its vertices Frame to Frame");
+    }
+
+    void testSplineMode() {
+        ofPixels rectangle = rectangleFrame(background, foreground);
+        ofPixels uniform = solidFrame(160, 120, background);
+        MosaicMaker spline;
+        spline.stableVertices = false;
+        Mosaic mosaic = spline.make(rectangle);
+
+        ofxTest(coversFrame(mosaic, 160, 120), "spline mode: Tessels cover the whole Frame");
+        bool pixelColours = true;
+        for (const Tessel& tessel : mosaic.tessels) {
+            glm::vec3 c = centroid(tessel);
+            pixelColours = pixelColours && tessel.color == rectangle.getColor(
+                ofClamp(int(c.x), 0, 159), ofClamp(int(c.y), 0, 119));
+        }
+        ofxTest(pixelColours, "spline mode: every Tessel takes the Frame pixel at its centroid");
+        ofxTest(!sameMosaic(mosaic, MosaicMaker().make(rectangle)), "spline and stable modes give different Mosaics");
+
+        spline.make(rectangle);
+        MosaicMaker freshSpline;
+        freshSpline.stableVertices = false;
+        ofxTest(sameMosaic(spline.make(uniform), freshSpline.make(uniform)),
+                "spline mode: the Mosaic depends only on the current Frame");
     }
 
     void testContourAreaFilter() {
