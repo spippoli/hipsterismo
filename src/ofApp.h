@@ -3,6 +3,9 @@
 #include "ofMain.h"
 #include "ofxGui.h"
 #include "mosaic/Mosaic.h"
+#ifdef TARGET_LINUX
+#include "ofGstUtils.h"
+#endif
 
 //#define LIVE_INPUT
 
@@ -31,7 +34,14 @@ class ofApp : public ofBaseApp{
 
         ofxPanel gui;
 #ifdef LIVE_INPUT
+#ifdef TARGET_LINUX
+        // ofVideoGrabber (OF 0.12.1) picks the DMABuf caps that GStreamer >= 1.24
+        // advertises for v4l2 cameras and builds an unlinkable pipeline, so on
+        // Linux the camera is opened with an explicit pipeline instead.
+        ofGstVideoUtils cam;
+#else
         ofVideoGrabber cam;
+#endif
 #else
         ofVideoPlayer player;
 #endif
