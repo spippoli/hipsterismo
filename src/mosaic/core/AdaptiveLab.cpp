@@ -1,5 +1,7 @@
 #include "AdaptiveLab.h"
 
+#include "AdaptiveParallel.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -258,11 +260,13 @@ std::array<float, 3> labOf(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void labFrame(const uint8_t* rgb, int width, int height, int stride, float* lab) {
-    for (int y = 0; y < height; y++) {
-        const uint8_t* p = rgb + size_t(y) * stride;
-        float* out = lab + size_t(y) * width * 3;
-        for (int x = 0; x < width; x++, p += 3, out += 3) labInto(p[0], p[1], p[2], out);
-    }
+    parallelFor(height, 32, threadsFor(size_t(width) * height), [&](int from, int to, int) {
+        for (int y = from; y < to; y++) {
+            const uint8_t* p = rgb + size_t(y) * stride;
+            float* out = lab + size_t(y) * width * 3;
+            for (int x = 0; x < width; x++, p += 3, out += 3) labInto(p[0], p[1], p[2], out);
+        }
+    });
 }
 
 int gaussianTaps(double sigma) {
@@ -301,36 +305,45 @@ void gaussianBlur(float* values, int width, int height, double sigma) {
     if (width <= 0 || height <= 0 || taps <= 1) return;
     const std::vector<float> kernel = gaussianKernel(taps, sigma);
     const int rowFloats = width * 3;
+    const int threads = threadsFor(size_t(width) * height);
+    // Per thread: a padded row and the taps' source pointers.
+    std::vector<std::vector<float>> padded(threads, std::vector<float>(size_t(width + 2 * radius) * 3));
+    std::vector<std::vector<const float*>> sources(threads, std::vector<const float*>(taps));
 
     // Rows: each row padded with its reflection, tap i starting i pixels in.
     // Every row is written before the columns read it, so `rows` is left
     // uninitialised.
     std::unique_ptr<float[]> rows(new float[size_t(rowFloats) * height]);
-    std::vector<float> padded(size_t(width + 2 * radius) * 3);
-    std::vector<const float*> sources(taps);
-    for (int i = 0; i < taps; i++) sources[i] = &padded[size_t(i) * 3];
-    for (int y = 0; y < height; y++) {
-        const float* source = &values[size_t(y) * rowFloats];
-        std::copy_n(source, rowFloats, &padded[size_t(radius) * 3]);
-        for (int x = 1; x <= radius; x++) {
-            std::copy_n(source + reflect101(-x, width) * 3, 3, &padded[size_t(radius - x) * 3]);
-            std::copy_n(source + reflect101(width - 1 + x, width) * 3, 3, &padded[size_t(radius + width - 1 + x) * 3]);
+    parallelFor(height, 16, threads, [&](int fromY, int toY, int slot) {
+        float* pad = padded[slot].data();
+        const float** source = sources[slot].data();
+        for (int i = 0; i < taps; i++) source[i] = pad + size_t(i) * 3;
+        for (int y = fromY; y < toY; y++) {
+            const float* row = &values[size_t(y) * rowFloats];
+            std::copy_n(row, rowFloats, pad + size_t(radius) * 3);
+            for (int x = 1; x <= radius; x++) {
+                std::copy_n(row + reflect101(-x, width) * 3, 3, pad + size_t(radius - x) * 3);
+                std::copy_n(row + reflect101(width - 1 + x, width) * 3, 3, pad + size_t(radius + width - 1 + x) * 3);
+            }
+            convolve(&rows[size_t(y) * rowFloats], source, kernel.data(), taps, rowFloats);
         }
-        convolve(&rows[size_t(y) * rowFloats], sources.data(), kernel.data(), taps, rowFloats);
-    }
+    });
     // Columns: tap i is the reflected row y + i - radius. In strips of 256
     // floats, so the taps' rows of a strip stay in the cache from one output
     // row to the next (43 taps at 2048 px would otherwise read 1 MB per row).
-    const int strip = 256;
-    for (int from = 0; from < rowFloats; from += strip) {
-        const int count = std::min(strip, rowFloats - from);
-        for (int y = 0; y < height; y++) {
-            for (int i = 0; i < taps; i++) {
-                sources[i] = &rows[size_t(reflect101(y + i - radius, height)) * rowFloats + from];
+    const int strip = 256, strips = (rowFloats + strip - 1) / strip;
+    parallelFor(strips, 1, threads, [&](int fromStrip, int toStrip, int slot) {
+        const float** source = sources[slot].data();
+        for (int from = fromStrip * strip; from < std::min(rowFloats, toStrip * strip); from += strip) {
+            const int count = std::min(strip, rowFloats - from);
+            for (int y = 0; y < height; y++) {
+                for (int i = 0; i < taps; i++) {
+                    source[i] = &rows[size_t(reflect101(y + i - radius, height)) * rowFloats + from];
+                }
+                convolve(&values[size_t(y) * rowFloats + from], source, kernel.data(), taps, count);
             }
-            convolve(&values[size_t(y) * rowFloats + from], sources.data(), kernel.data(), taps, count);
         }
-    }
+    });
 }
 
 } // namespace mosaic::core

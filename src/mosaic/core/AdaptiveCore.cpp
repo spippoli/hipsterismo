@@ -10,6 +10,7 @@
 #include <unordered_map>
 
 #include "AdaptiveLab.h"
+#include "AdaptiveParallel.h"
 #include "CDT.h"
 
 namespace mosaic::core {
@@ -163,30 +164,51 @@ SortedEdges sortedEdges(const LabFrame& lab) {
     };
     const int buckets = 4096;
     auto bucket = [&](float weight) { return std::min(buckets - 1, int(weight * 16.f)); };
+    // Rows in parallel, each thread counting into its own buckets; the
+    // counts are integers, so their sum doesn't depend on the split.
+    const int threads = threadsFor(n);
+    std::vector<std::vector<size_t>> counts(threads, std::vector<size_t>(buckets + 1, 0));
+    parallelFor(h, 16, threads, [&](int fromY, int toY, int slot) {
+        std::vector<size_t>& count = counts[slot];
+        for (int y = fromY; y < toY; y++) {
+            const float* row = lab.at(y * w);
+            float* out = &weight[size_t(y) * w * 4];
+            if (y + 1 < h) {
+                const float* below = row + size_t(w) * 3;
+                auto edge = [&](int x) {
+                    const float* p = row + size_t(x) * 3;
+                    const float* q = below + size_t(x) * 3;
+                    out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
+                    out[4 * x + 1] = distance(p, q);
+                    out[4 * x + 2] = x + 1 < w ? distance(p, q + 3) : -1.f;
+                    out[4 * x + 3] = x > 0 ? distance(p, q - 3) : -1.f;
+                };
+                edge(0);
+                // Inside the row every pixel has all four edges.
+                for (int x = 1; x + 1 < w; x++) {
+                    const float* p = row + size_t(x) * 3;
+                    const float* q = below + size_t(x) * 3;
+                    out[4 * x + 0] = distance(p, p + 3);
+                    out[4 * x + 1] = distance(p, q);
+                    out[4 * x + 2] = distance(p, q + 3);
+                    out[4 * x + 3] = distance(p, q - 3);
+                }
+                if (w > 1) edge(w - 1);
+            } else {
+                for (int x = 0; x < w; x++) {
+                    const float* p = row + size_t(x) * 3;
+                    out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
+                    out[4 * x + 1] = out[4 * x + 2] = out[4 * x + 3] = -1.f;
+                }
+            }
+            for (int k = 0; k < 4 * w; k++) {
+                if (out[k] >= 0) count[bucket(out[k]) + 1]++;
+            }
+        }
+    });
     std::vector<size_t> start(buckets + 1, 0);
-    for (int y = 0; y < h; y++) {
-        const float* row = lab.at(y * w);
-        float* out = &weight[size_t(y) * w * 4];
-        if (y + 1 < h) {
-            const float* below = row + size_t(w) * 3;
-            for (int x = 0; x < w; x++) {
-                const float* p = row + size_t(x) * 3;
-                const float* q = below + size_t(x) * 3;
-                out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
-                out[4 * x + 1] = distance(p, q);
-                out[4 * x + 2] = x + 1 < w ? distance(p, q + 3) : -1.f;
-                out[4 * x + 3] = x > 0 ? distance(p, q - 3) : -1.f;
-            }
-        } else {
-            for (int x = 0; x < w; x++) {
-                const float* p = row + size_t(x) * 3;
-                out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
-                out[4 * x + 1] = out[4 * x + 2] = out[4 * x + 3] = -1.f;
-            }
-        }
-        for (int k = 0; k < 4 * w; k++) {
-            if (out[k] >= 0) start[bucket(out[k]) + 1]++;
-        }
+    for (const std::vector<size_t>& count : counts) {
+        for (int i = 0; i <= buckets; i++) start[i] += count[i];
     }
     for (int i = 0; i < buckets; i++) start[i + 1] += start[i];
     SortedEdges sorted{std::unique_ptr<SortedEdge[]>(new SortedEdge[start[buckets]]), start[buckets]};
