@@ -69,7 +69,7 @@ bool ofApp::renderStill(){
         ofLogError("ofApp") << "could not load image " << stillInput;
         return false;
     }
-    mosaicMaker.stableVertices = false;
+    mosaicMaker.vertexMode = VERTEX_MODE_SPLINE;
     ofMesh stillMesh = toMesh(mosaicMaker.make(image));
 
     ofFbo fbo;
@@ -173,9 +173,9 @@ void ofApp::keyPressed(int key){
             break;
         case 's':
         {
-            // Switch between stable (cell-based) and spline vertex selection.
-            mosaicMaker.stableVertices = !mosaicMaker.stableVertices;
-            ofLogNotice("ofApp") << "vertices: " << (mosaicMaker.stableVertices ? "stable" : "spline");
+            // Cycle through the vertex modes, wrapping after the last.
+            mosaicMaker.vertexMode = nextVertexMode(mosaicMaker.vertexMode);
+            ofLogNotice("ofApp") << "vertex mode: " << vertexModeNames[mosaicMaker.vertexMode];
         }
             break;
         case 'p':

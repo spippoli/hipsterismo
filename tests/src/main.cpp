@@ -197,7 +197,7 @@ ofPixels loadFixture(const std::string& name) {
 // The tests below that are not about spline mode exercise stable mode, which
 // is not the default.
 struct StableMaker : MosaicMaker {
-    StableMaker() { stableVertices = true; }
+    StableMaker() { vertexMode = VERTEX_MODE_STABLE; }
 };
 
 class ofApp : public ofxUnitTestsApp {
@@ -212,6 +212,7 @@ class ofApp : public ofxUnitTestsApp {
         testStabilityUnderNoise();
         testSplineMode();
         testSplineGolden();
+        testVertexMode();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -384,7 +385,7 @@ class ofApp : public ofxUnitTestsApp {
         ofPixels rectangle = rectangleFrame(background, foreground);
         ofPixels uniform = solidFrame(160, 120, background);
         MosaicMaker spline;
-        ofxTest(!spline.stableVertices, "spline mode is the default");
+        ofxTestEq(spline.vertexMode.get(), int(VERTEX_MODE_SPLINE), "spline mode is the default");
         Mosaic mosaic = spline.make(rectangle);
 
         ofxTest(coversFrame(mosaic, 160, 120), "spline mode: Tessels cover the whole Frame");
@@ -415,6 +416,27 @@ class ofApp : public ofxUnitTestsApp {
         const uint64_t hash = mosaicHash(mosaic);
         ofLogNotice("golden") << mosaic.tessels.size() << " Tessels, hash 0x" << ofToHex(hash);
         ofxTestEq(hash, uint64_t(0x6fa697f1ffa56c72ull), "spline Mosaic of fingers.png matches the golden hash");
+    }
+
+    void testVertexMode() {
+        MosaicMaker maker;
+        ofxTestEq(maker.vertexMode.getMin(), 0, "vertex mode starts at 0");
+        ofxTestEq(maker.vertexMode.getMax(), VERTEX_MODE_COUNT - 1, "vertex mode ends at the last mode");
+        ofxTestEq(std::string(vertexModeNames[VERTEX_MODE_SPLINE]), std::string("spline"), "mode 0 is spline");
+        ofxTestEq(std::string(vertexModeNames[VERTEX_MODE_STABLE]), std::string("stable"), "mode 1 is stable");
+
+        ofxTestEq(nextVertexMode(VERTEX_MODE_SPLINE), int(VERTEX_MODE_STABLE), "spline is followed by stable");
+        ofxTestEq(nextVertexMode(VERTEX_MODE_COUNT - 1), int(VERTEX_MODE_SPLINE), "the last mode wraps to spline");
+
+        ofXml xml;
+        xml.parse("<mosaic><vertex_mode>1</vertex_mode></mosaic>");
+        ofDeserialize(xml, maker.parameters);
+        ofxTestEq(maker.vertexMode.get(), int(VERTEX_MODE_STABLE), "vertex_mode in settings selects the mode");
+
+        MosaicMaker old;
+        xml.parse("<mosaic><stable_vertices>1</stable_vertices></mosaic>");
+        ofDeserialize(xml, old.parameters);
+        ofxTestEq(old.vertexMode.get(), int(VERTEX_MODE_SPLINE), "an old stable_vertices tag is ignored");
     }
 
     void testContourAreaFilter() {
