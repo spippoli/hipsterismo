@@ -38,11 +38,12 @@ ofMesh toMesh(const Mosaic& mosaic);
 enum VertexMode : int {
     VERTEX_MODE_SPLINE = 0,
     VERTEX_MODE_STABLE = 1,
+    VERTEX_MODE_ADAPTIVE = 2,
     VERTEX_MODE_COUNT
 };
 
 // Name of each vertex mode, indexed by its value: for labels and the command line.
-constexpr std::array<const char*, VERTEX_MODE_COUNT> vertexModeNames = {"spline", "stable"};
+constexpr std::array<const char*, VERTEX_MODE_COUNT> vertexModeNames = {"spline", "stable", "adaptive"};
 
 // The mode after `mode`, wrapping from the last back to the first.
 inline int nextVertexMode(int mode) {
@@ -51,7 +52,7 @@ inline int nextVertexMode(int mode) {
 
 // Turns a sequence of Frames into Mosaics.
 //
-// Two ways of choosing the vertices, picked by `vertex mode` (a VertexMode):
+// Three ways of choosing the vertices, picked by `vertex mode` (a VertexMode):
 //
 // - Spline (0, default, the original look): all Contours are joined into one
 //   spline and sampled `interpolation resolution` times. Vertices move with
@@ -63,13 +64,19 @@ inline int nextVertexMode(int mode) {
 //   `persistence` Frames after its Contour has left. Sensor noise therefore
 //   only moves a vertex when a Contour enters or leaves a cell. Each Tessel
 //   takes the mean colour of the 5x5 pixels around its centroid.
+// - Adaptive (2): no Canny and no ContourFinder. The Frame is segmented into
+//   Patches of at least `min patch area` pixels, and one constrained Delaunay
+//   triangulation follows their exact boundaries, so no Tessel crosses two
+//   Patches. Each Tessel takes the mean colour of the pixels inside it, and
+//   the Contours are the Patch boundaries off the Frame border. See
+//   Adaptive.h for the pipeline.
 //
 // In stable mode make() depends on the Frames seen so far (only through the
 // active cells): the same sequence of Frames and parameters always gives the
 // same Mosaics. Call reset() when the next Frame does not follow the previous
 // one (new source, seek); a change of Frame size, cell size or mode resets
-// automatically. With persistence 0, or in spline mode, make() is a pure
-// function of the Frame.
+// automatically. With persistence 0, or in spline or adaptive mode, make()
+// is a pure function of the Frame.
 //
 // Frames may be grayscale, RGB or RGBA. The Tessels always tile the whole
 // Frame rectangle, (0,0) to (width,height), even where there are no Contours;
@@ -84,7 +91,8 @@ public:
     // The parameters that matter in vertex mode `mode`, for the panel:
     // `vertex mode` first, then the mode's own parameters in group order.
     // Spline hides `cell size` and `persistence`; stable hides
-    // `interpolation resolution`. Every element is one of `parameters`.
+    // `interpolation resolution`; both hide `min patch area`, the only one
+    // adaptive shows. Every element is one of `parameters`.
     std::vector<std::shared_ptr<ofAbstractParameter>> parametersFor(int mode);
 
     // Tunable pipeline parameters, named after their settings.xml tags.
@@ -99,6 +107,7 @@ public:
     ofParameter<int> minArea;
     ofParameter<int> maxArea;
     ofParameter<bool> findHoles;
+    ofParameter<int> minPatchArea; // px², adaptive only
 
 private:
     using Cell = std::pair<int, int>;

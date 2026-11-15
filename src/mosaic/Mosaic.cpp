@@ -1,4 +1,5 @@
 #include "Mosaic.h"
+#include "Adaptive.h"
 
 #include <set>
 
@@ -45,6 +46,7 @@ MosaicMaker::MosaicMaker() {
     parameters.add(minArea.set("min area", 2, 0, 10000));
     parameters.add(maxArea.set("max area", 400000, 0, 2000000));
     parameters.add(findHoles.set("find holes", true));
+    parameters.add(minPatchArea.set("min patch area", 32, 8, 1024));
 
     // Canny output is binary (0 or 255), so any threshold in between is equivalent.
     finder.setThreshold(128);
@@ -52,6 +54,13 @@ MosaicMaker::MosaicMaker() {
 
 std::vector<std::shared_ptr<ofAbstractParameter>> MosaicMaker::parametersFor(int mode) {
     auto usedIn = [&](const ofAbstractParameter& parameter) {
+        // Adaptive runs no Canny and no ContourFinder: only its own parameter.
+        if (parameter.isReferenceTo(minPatchArea)) {
+            return mode == VERTEX_MODE_ADAPTIVE;
+        }
+        if (mode == VERTEX_MODE_ADAPTIVE) {
+            return false;
+        }
         if (parameter.isReferenceTo(cellSize) || parameter.isReferenceTo(persistence)) {
             return mode == VERTEX_MODE_STABLE;
         }
@@ -85,18 +94,6 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
     if (rgb.getImageType() != OF_IMAGE_COLOR) {
         rgb.setImageType(OF_IMAGE_COLOR);
     }
-    cv::Mat source = ofxCv::toCv(rgb);
-
-    cv::cvtColor(source, gray, cv::COLOR_RGB2GRAY);
-    for (int i = 1; i < blurIterations; i += 2) {
-        cv::GaussianBlur(gray, gray, cv::Size(i, i), 1);
-    }
-    ofxCv::Canny(gray, edges, threshold1, threshold2, 3, false);
-    finder.setMinArea(minArea);
-    finder.setMaxArea(maxArea);
-    finder.setFindHoles(findHoles);
-    finder.findContours(edges);
-    mosaic.contours = finder.getPolylines();
 
     // The Mosaic spans the whole Frame rectangle, from (0,0) to (width,height).
     const int width = rgb.getWidth();
@@ -111,6 +108,22 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
         stateCellSize = g;
         stateMode = mode;
     }
+
+    if (mode == VERTEX_MODE_ADAPTIVE) {
+        return adaptive::make(rgb, minPatchArea);
+    }
+
+    cv::Mat source = ofxCv::toCv(rgb);
+    cv::cvtColor(source, gray, cv::COLOR_RGB2GRAY);
+    for (int i = 1; i < blurIterations; i += 2) {
+        cv::GaussianBlur(gray, gray, cv::Size(i, i), 1);
+    }
+    ofxCv::Canny(gray, edges, threshold1, threshold2, 3, false);
+    finder.setMinArea(minArea);
+    finder.setMaxArea(maxArea);
+    finder.setFindHoles(findHoles);
+    finder.findContours(edges);
+    mosaic.contours = finder.getPolylines();
 
     if (stable) {
         // Cells the Contours pass through now are fresh; the others age and
