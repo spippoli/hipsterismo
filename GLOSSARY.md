@@ -9,7 +9,7 @@ A single image fed to the app, whether it comes from a video, a camera or a stil
 _Avoid_: source, input, image (when the role is meant)
 
 **Contour**:
-An outline of an edge found in a Frame; the Tessels are built from points along the Contours.
+An outline found in a Frame, either along an edge or between two Patches; the Tessels are built from points along the Contours.
 _Avoid_: edge, outline, blob
 
 **Patch**:
