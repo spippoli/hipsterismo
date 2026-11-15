@@ -125,14 +125,9 @@ bool ofApp::renderStill(){
         ofLogError("ofApp") << "could not load image " << stillInput;
         return false;
     }
-    // Read the settings here rather than rely on the panel having loaded them.
-    ofXml settings;
-    if (settings.load("settings.xml")) {
-        ofXml panel = settings.getChild("panel");
-        for (auto& parameter : mosaicMaker.parameters) {
-            ofDeserialize(panel, *parameter);
-        }
-    }
+    // setup() has loaded them already; read them again so that this does
+    // not depend on the order of calls there.
+    loadSettings();
     if (stillMode) {
         mosaicMaker.vertexMode = *stillMode;
     }
