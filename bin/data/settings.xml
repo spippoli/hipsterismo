@@ -2,4 +2,12 @@
 	<first_threshold>0</first_threshold>
 	<second_threshold>40</second_threshold>
 	<blur_iteration>6</blur_iteration>
+	<vertex_mode>2</vertex_mode>
+	<cell_size>5</cell_size>
+	<persistence>2</persistence>
+	<interpolation_resolution>1000</interpolation_resolution>
+	<min_area>2</min_area>
+	<max_area>400000</max_area>
+	<find_holes>1</find_holes>
+	<min_patch_area>32</min_patch_area>
 </panel>
