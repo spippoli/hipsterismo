@@ -110,17 +110,18 @@ const uint8_t* pixel(const RgbImage& rgb, int x, int y) {
 // A float Lab Frame, three floats (L, a, b) per pixel, row by row.
 struct LabFrame {
     int width = 0, height = 0;
-    std::vector<float> values;
+    std::unique_ptr<float[]> values;
     const float* at(int i) const { return &values[size_t(i) * 3]; }
 };
 
 // The Frame in Lab (exactly OpenCV's float conversion, see labOf()),
 // blurred with σ by gaussianBlur(), whose fused multiply-adds give the same
-// floats on every platform.
+// floats on every platform. labFrame() writes every value, so the array is
+// left uninitialised.
 LabFrame blurredLab(const RgbImage& rgb, float sigma) {
-    LabFrame frame{rgb.width, rgb.height, std::vector<float>(size_t(rgb.width) * rgb.height * 3)};
-    labFrame(rgb.data, rgb.width, rgb.height, rgb.stride, frame.values.data());
-    gaussianBlur(frame.values, rgb.width, rgb.height, double(sigma));
+    LabFrame frame{rgb.width, rgb.height, std::unique_ptr<float[]>(new float[size_t(rgb.width) * rgb.height * 3])};
+    labFrame(rgb.data, rgb.width, rgb.height, rgb.stride, frame.values.get());
+    gaussianBlur(frame.values.get(), rgb.width, rgb.height, double(sigma));
     return frame;
 }
 

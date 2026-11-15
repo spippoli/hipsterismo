@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <memory>
 
 #if defined(__x86_64__)
 #include <immintrin.h>
@@ -295,14 +296,17 @@ std::vector<float> gaussianKernel(int taps, double sigma) {
     return std::vector<float>(kernel.begin(), kernel.end());
 }
 
-void gaussianBlur(std::vector<float>& values, int width, int height, double sigma) {
+void gaussianBlur(float* values, int width, int height, double sigma) {
     const int taps = gaussianTaps(sigma), radius = taps / 2;
     if (width <= 0 || height <= 0 || taps <= 1) return;
     const std::vector<float> kernel = gaussianKernel(taps, sigma);
     const int rowFloats = width * 3;
 
     // Rows: each row padded with its reflection, tap i starting i pixels in.
-    std::vector<float> rows(values.size()), padded(size_t(width + 2 * radius) * 3);
+    // Every row is written before the columns read it, so `rows` is left
+    // uninitialised.
+    std::unique_ptr<float[]> rows(new float[size_t(rowFloats) * height]);
+    std::vector<float> padded(size_t(width + 2 * radius) * 3);
     std::vector<const float*> sources(taps);
     for (int i = 0; i < taps; i++) sources[i] = &padded[size_t(i) * 3];
     for (int y = 0; y < height; y++) {

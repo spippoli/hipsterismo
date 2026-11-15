@@ -29,14 +29,14 @@ int gaussianTaps(double sigma);
 // double arithmetic, including OpenCV's software exp.
 std::vector<float> gaussianKernel(int taps, double sigma);
 
-// Blurs a 3-channel float image in place (`values` holds width * height * 3
-// floats, row by row) with the separable kernel of gaussianKernel(), rows
+// Blurs a 3-channel float image in place (`values` points to width * height
+// * 3 floats, row by row) with the separable kernel of gaussianKernel(), rows
 // first, then columns. The border is reflected without repeating the edge
 // (OpenCV's BORDER_REFLECT_101). Each output is the taps in order,
 // accumulated from 0 with std::fma, so it is correctly rounded at every
 // step and doesn't depend on the CPU or the vector width. It differs from
 // cv::GaussianBlur in the last bits, whose order of accumulation depends on
 // the CPU.
-void gaussianBlur(std::vector<float>& values, int width, int height, double sigma);
+void gaussianBlur(float* values, int width, int height, double sigma);
 
 } // namespace mosaic::core
