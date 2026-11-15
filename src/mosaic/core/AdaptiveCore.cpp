@@ -752,9 +752,25 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
     }
 }
 
+// Floor and ceiling of a / d for d > 0.
+int64_t floorDiv(int64_t a, int64_t d) {
+    return a >= 0 ? a / d : -((-a + d - 1) / d);
+}
+
+int64_t ceilDiv(int64_t a, int64_t d) {
+    return -floorDiv(-a, d);
+}
+
 // Mean colour of the pixels whose centre lies inside the triangle; a centre
 // on an edge counts for the triangle the edge is a top or left edge of, so
 // each pixel counts once. The pixel at the centroid if no centre is inside.
+//
+// The vertices are lattice points (pixel corners) and the centres are at
+// half pixels, so on the doubled lattice each edge's side test is exact in
+// integers: per row, each edge bounds the run of inside centres with an
+// integer division, the same decision for every pixel as the test
+// side > 0 || (side == 0 && topLeft) in doubles, which is exact here too.
+// The pixels of each run are then summed with no test.
 Rgb meanColour(const RgbImage& rgb, std::array<DVec, 3> t) {
     const int w = rgb.width, h = rgb.height;
     auto cross = [](DVec a, DVec b, DVec p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
@@ -763,24 +779,41 @@ Rgb meanColour(const RgbImage& rgb, std::array<DVec, 3> t) {
     const int x1 = std::min(w - 1, int(std::ceil(std::max({t[0].x, t[1].x, t[2].x}))));
     const int y0 = std::max(0, int(std::floor(std::min({t[0].y, t[1].y, t[2].y}) - 0.5)));
     const int y1 = std::min(h - 1, int(std::ceil(std::max({t[0].y, t[1].y, t[2].y}))));
+    // Doubled vertices; edge k runs from v[k] to v[k + 1].
+    int64_t vx[3], vy[3];
+    for (int k = 0; k < 3; k++) {
+        vx[k] = 2 * int64_t(t[k].x);
+        vy[k] = 2 * int64_t(t[k].y);
+    }
     uint64_t r = 0, g = 0, b = 0, count = 0;
     for (int y = y0; y <= y1; y++) {
-        for (int x = x0; x <= x1; x++) {
-            DVec centre(x + 0.5, y + 0.5);
-            bool inside = true;
-            for (int k = 0; k < 3 && inside; k++) {
-                DVec a = t[k], e = t[(k + 1) % 3] - a;
-                double side = cross(a, a + e, centre);
-                bool topLeft = (e.y == 0 && e.x < 0) || e.y > 0;
-                inside = side > 0 || (side == 0 && topLeft);
+        const int64_t cy = 2 * int64_t(y) + 1;
+        int64_t lo = x0, hi = x1; // the run of inside centres in this row
+        for (int k = 0; k < 3 && lo <= hi; k++) {
+            const int64_t ax = vx[k], ay = vy[k], ex = vx[(k + 1) % 3] - ax, ey = vy[(k + 1) % 3] - ay;
+            // side(X) = ex (cy - ay) - ey (X - ax) = c - ey X at centre X = 2x + 1.
+            const int64_t c = ex * (cy - ay) + ey * ax;
+            if (ey == 0) {
+                // topLeft if ex < 0: inside if c > 0, or c == 0 on a top edge.
+                if (!(c > 0 || (c == 0 && ex < 0))) hi = lo - 1;
+            } else if (ey > 0) {
+                // A left edge (topLeft): inside if c - ey X >= 0, X <= c / ey.
+                const int64_t maxX = floorDiv(c, ey);
+                hi = std::min(hi, floorDiv(maxX - 1, 2));
+            } else {
+                // Not topLeft: inside if c + |ey| X > 0, X > -c / |ey|.
+                const int64_t minX = floorDiv(-c, -ey) + 1;
+                lo = std::max(lo, ceilDiv(minX - 1, 2));
             }
-            if (!inside) continue;
-            const uint8_t* p = pixel(rgb, x, y);
+        }
+        if (lo > hi) continue;
+        const uint8_t* p = pixel(rgb, int(lo), y);
+        for (int64_t x = lo; x <= hi; x++, p += 3) {
             r += p[0];
             g += p[1];
             b += p[2];
-            count++;
         }
+        count += uint64_t(hi - lo + 1);
     }
     if (count == 0) {
         DVec c = (t[0] + t[1] + t[2]) / 3.0;
