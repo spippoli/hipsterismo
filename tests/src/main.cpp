@@ -1198,8 +1198,10 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(coversFrame(fromGray, 160, 120), "adaptive: a grayscale Frame is tiled");
     }
 
-    // At 320x240 adaptive must keep giving exactly the Mosaic it gave before
-    // its size constants were referred to that Frame size (#32).
+    // The adaptive Mosaic of fingers.png at 320x240, to catch any change. It
+    // stayed the same when the size constants were referred to 320x240 (#32),
+    // and changed when Patch pieces that touch only at a corner were
+    // absorbed (#45).
     void testAdaptiveGolden() {
         ofPixels scene = loadFixture("fingers.png");
         ofxTest(scene.isAllocated(), "fixture fingers.png loads");
@@ -1208,7 +1210,7 @@ class ofApp : public ofxUnitTestsApp {
         const uint64_t hash = mosaicHash(mosaic);
         ofLogNotice("adaptive golden") << mosaic.tessels.size() << " Tessels, " << patchCount(mosaic)
                                        << " Patches, hash 0x" << ofToHex(hash);
-        ofxTestEq(hash, uint64_t(0x62e72339903fe092ull), "adaptive Mosaic of fingers.png matches the golden hash");
+        ofxTestEq(hash, uint64_t(0xe0d145733a499498ull), "adaptive Mosaic of fingers.png matches the golden hash");
     }
 
     // The size constants are referred to 320x240: min patch area scales
