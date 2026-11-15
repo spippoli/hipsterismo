@@ -215,6 +215,7 @@ class ofApp : public ofxUnitTestsApp {
         testSplineGolden();
         testVertexMode();
         testParametersPerMode();
+        testSettingsRoundTrip();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -543,6 +544,47 @@ class ofApp : public ofxUnitTestsApp {
             }
         }
         ofxTest(allInGroup, "every shown parameter is one of the maker's parameters");
+    }
+
+    // The app saves and loads the whole group, named "panel", whatever the
+    // panel shows.
+    void testSettingsRoundTrip() {
+        MosaicMaker saved;
+        saved.parameters.setName("panel");
+        saved.vertexMode = VERTEX_MODE_SPLINE;
+        saved.threshold1 = 11;
+        saved.cellSize = 17;
+        saved.persistence = 7;
+        saved.resolution = 1234;
+        saved.findHoles = false;
+        ofXml xml;
+        ofSerialize(xml, saved.parameters);
+        ofxTestEq(xml.getChild("panel").getChild("cell_size").getIntValue(), 17,
+                  "a parameter hidden in spline mode is saved under <panel>");
+        ofxTestEq(xml.getChild("panel").getChild("first_threshold").getIntValue(), 11,
+                  "settings keep their <panel><first_threshold> layout");
+
+        MosaicMaker loaded;
+        loaded.parameters.setName("panel");
+        loaded.vertexMode = VERTEX_MODE_STABLE;
+        ofXml reread;
+        reread.parse(xml.toString());
+        ofDeserialize(reread, loaded.parameters);
+        bool same = true;
+        for (size_t i = 0; i < saved.parameters.size(); i++) {
+            same = same && saved.parameters.get(i).toString() == loaded.parameters.get(i).toString();
+        }
+        ofxTest(same, "loading restores every parameter, whatever mode was active");
+        ofxTestEq(loaded.persistence.get(), 7, "persistence round-trips");
+        ofxTestEq(loaded.resolution.get(), 1234, "interpolation resolution round-trips");
+
+        MosaicMaker old;
+        old.parameters.setName("panel");
+        xml.parse("<panel><first_threshold>3</first_threshold><second_threshold>40</second_threshold>"
+                  "<blur_iteration>6</blur_iteration><stable_vertices>1</stable_vertices></panel>");
+        ofDeserialize(xml, old.parameters);
+        ofxTest(old.threshold1 == 3 && old.threshold2 == 40 && old.blurIterations == 6,
+                "a settings.xml from before vertex mode still loads");
     }
 
     void testContourAreaFilter() {
