@@ -2,6 +2,7 @@
 #include "ofAppNoWindow.h"
 #include "ofxUnitTests.h"
 #include "Mosaic.h"
+#include "CommandLine.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -218,6 +219,77 @@ class ofApp : public ofxUnitTestsApp {
         testToMesh();
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
+        testCommandLineWithoutArguments();
+        testCommandLineWithoutMode();
+        testCommandLineModes();
+        testCommandLineErrors();
+    }
+
+    CommandLine parse(const std::vector<std::string>& args) {
+        return parseCommandLine(args, vertexModeNames);
+    }
+
+    void testCommandLineWithoutArguments() {
+        CommandLine none = parse({});
+        ofxTestEq(int(none.action), int(CommandLine::WINDOW), "no arguments play in a window");
+        ofxTestEq(none.exitCode(), 0, "no arguments are not an error");
+        ofxTestEq(int(parse({"--help"}).action), int(CommandLine::HELP), "--help asks for the usage");
+        ofxTestEq(int(parse({"-h"}).action), int(CommandLine::HELP), "-h asks for the usage");
+        ofxTestEq(parse({"-h"}).exitCode(), 0, "the usage exits with 0");
+    }
+
+    void testCommandLineWithoutMode() {
+        CommandLine image = parse({"dir/photo.jpg"});
+        ofxTestEq(int(image.action), int(CommandLine::STILL), "an image gives still mode");
+        ofxTest(!image.mode.has_value(), "without --mode no mode is chosen");
+        ofxTestEq(image.image, std::string("dir/photo.jpg"), "the image is the first argument");
+        ofxTestEq(image.output, std::string("dir/photo-mosaic.png"), "the output defaults to IMAGE-mosaic.png next to it");
+
+        CommandLine output = parse({"photo.jpg", "out.png"});
+        ofxTestEq(int(output.action), int(CommandLine::STILL), "image and output give still mode");
+        ofxTestEq(output.output, std::string("out.png"), "the output is the second argument");
+        ofxTest(!output.mode.has_value(), "image and output without --mode choose no mode");
+    }
+
+    void testCommandLineModes() {
+        for (int mode = 0; mode < VERTEX_MODE_COUNT; mode++) {
+            std::string name = vertexModeNames[mode];
+            CommandLine before = parse({"--mode", name, "photo.jpg", "out.png"});
+            ofxTestEq(int(before.action), int(CommandLine::STILL), "--mode " + name + " gives still mode");
+            ofxTestEq(before.mode.value_or(-1), mode, "--mode " + name + " chooses mode " + ofToString(mode));
+            ofxTestEq(before.image, std::string("photo.jpg"), "--mode " + name + " keeps the image");
+            ofxTestEq(before.output, std::string("out.png"), "--mode " + name + " keeps the output");
+
+            CommandLine after = parse({"photo.jpg", "--mode", name});
+            ofxTestEq(after.mode.value_or(-1), mode, "--mode " + name + " after the image chooses it too");
+            ofxTestEq(after.output, std::string("photo-mosaic.png"), "--mode after the image is not the output");
+        }
+
+        // A mode is accepted as soon as it is in the list of names.
+        std::array<const char*, 3> withAdaptive = {"spline", "stable", "adaptive"};
+        CommandLine adaptive = parseCommandLine({"--mode", "adaptive", "photo.jpg"}, withAdaptive);
+        ofxTestEq(adaptive.mode.value_or(-1), 2, "--mode adaptive chooses the third listed mode");
+        ofxTestEq(int(parse({"--mode", "adaptive", "photo.jpg"}).action), int(CommandLine::ERROR),
+                  "--mode adaptive is unknown while adaptive is not a vertex mode");
+    }
+
+    void testCommandLineErrors() {
+        auto isError = [this](const std::vector<std::string>& args, const std::string& what) {
+            CommandLine result = parse(args);
+            ofxTestEq(int(result.action), int(CommandLine::ERROR), what + " is an error");
+            ofxTestEq(result.exitCode(), 2, what + " exits with 2");
+            ofxTest(!result.error.empty(), what + " says what is wrong");
+        };
+        isError({"--mode", "bogus", "photo.jpg"}, "an unknown mode");
+        isError({"--mode", "Spline", "photo.jpg"}, "a mode name in the wrong case");
+        isError({"--mode"}, "--mode without a value or image");
+        isError({"photo.jpg", "--mode"}, "--mode without a value");
+        isError({"--mode", "stable"}, "--mode without an image");
+        isError({"photo.jpg", "out.png", "extra.png"}, "an extra argument");
+        isError({"--mode", "stable", "photo.jpg", "out.png", "extra.png"}, "an extra argument after --mode");
+        isError({"--mode", "stable", "--mode", "spline", "photo.jpg"}, "--mode given twice");
+        isError({"--bogus", "photo.jpg"}, "an unknown option");
+        isError({""}, "an empty image name");
     }
 
     // A point half a pixel from the border makes a flat triangle whose

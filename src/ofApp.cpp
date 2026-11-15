@@ -80,15 +80,28 @@ void ofApp::update(){
 }
 
 //--------------------------------------------------------------
-// Mosaic of one image with the spline (original) vertices and the thresholds
-// from settings.xml, drawn at the image's own size and saved.
+// Mosaic of one image with the parameters from settings.xml (the defaults
+// for those it lacks) and the vertex mode from --mode, if given, drawn at the
+// image's own size and saved.
 bool ofApp::renderStill(){
     ofPixels image;
     if (!ofLoadImage(image, stillInput) || !image.isAllocated()) {
         ofLogError("ofApp") << "could not load image " << stillInput;
         return false;
     }
-    mosaicMaker.vertexMode = VERTEX_MODE_SPLINE;
+    // Read the settings here rather than rely on the panel having loaded them.
+    ofXml settings;
+    if (settings.load("settings.xml")) {
+        ofXml panel = settings.getChild("panel");
+        for (auto& parameter : mosaicMaker.parameters) {
+            ofDeserialize(panel, *parameter);
+        }
+    }
+    if (stillMode) {
+        mosaicMaker.vertexMode = *stillMode;
+    }
+    mosaicMaker.vertexMode = ofClamp(mosaicMaker.vertexMode, 0, VERTEX_MODE_COUNT - 1);
+    ofLogNotice("ofApp") << "vertex mode: " << vertexModeNames[mosaicMaker.vertexMode];
     ofMesh stillMesh = toMesh(mosaicMaker.make(image));
 
     ofFbo fbo;

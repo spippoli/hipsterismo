@@ -28,8 +28,11 @@ class ofApp : public ofBaseApp{
 
         // Still mode (from the command line): render the Mosaic of
         // stillInput to stillOutput and exit, without showing a window.
+        // stillMode is the vertex mode given with --mode; without it the
+        // mode comes from settings.xml.
         std::string stillInput;
         std::string stillOutput;
+        std::optional<int> stillMode;
         bool renderStill();
 
         bool fullscreen;
