@@ -195,8 +195,12 @@ ofPixels loadFixture(const std::string& name) {
 
 } // namespace
 
-// The tests below that are not about spline mode exercise stable mode, which
-// is not the default.
+// Adaptive is the default vertex mode, so tests of another mode set it
+// explicitly.
+struct SplineMaker : MosaicMaker {
+    SplineMaker() { vertexMode = VERTEX_MODE_SPLINE; }
+};
+
 struct StableMaker : MosaicMaker {
     StableMaker() { vertexMode = VERTEX_MODE_STABLE; }
 };
@@ -321,6 +325,7 @@ class ofApp : public ofxUnitTestsApp {
         testDeterminism();
         testPersistence();
         testStabilityUnderNoise();
+        testDefaults();
         testSplineMode();
         testSplineTilesGrayscaleFrame();
         testSplineGolden();
@@ -608,11 +613,16 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(kept >= 0.9, "a static noisy scene keeps at least 90% of its vertices Frame to Frame");
     }
 
+    void testDefaults() {
+        MosaicMaker fresh;
+        ofxTestEq(fresh.vertexMode.get(), int(VERTEX_MODE_ADAPTIVE), "adaptive is the default vertex mode");
+        ofxTestEq(fresh.minPatchArea.get(), 32, "adaptive is the default with min patch area 32");
+    }
+
     void testSplineMode() {
         ofPixels rectangle = rectangleFrame(background, foreground);
         ofPixels uniform = solidFrame(160, 120, background);
-        MosaicMaker spline;
-        ofxTestEq(spline.vertexMode.get(), int(VERTEX_MODE_SPLINE), "spline mode is the default");
+        SplineMaker spline;
         Mosaic mosaic = spline.make(rectangle);
 
         ofxTest(coversFrame(mosaic, 160, 120), "spline mode: Tessels cover the whole Frame");
@@ -626,7 +636,7 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(!sameMosaic(mosaic, StableMaker().make(rectangle)), "spline and stable modes give different Mosaics");
 
         spline.make(rectangle);
-        MosaicMaker freshSpline;
+        SplineMaker freshSpline;
         ofxTest(sameMosaic(spline.make(uniform), freshSpline.make(uniform)),
                 "spline mode: the Mosaic depends only on the current Frame");
     }
@@ -636,7 +646,7 @@ class ofApp : public ofxUnitTestsApp {
     void testSplineTilesGrayscaleFrame() {
         ofPixels gray = rectangleFrame(background, foreground);
         gray.setImageType(OF_IMAGE_GRAYSCALE);
-        ofxTest(coversFrame(MosaicMaker().make(gray), 160, 120),
+        ofxTest(coversFrame(SplineMaker().make(gray), 160, 120),
                 "spline mode: Tessels of a grayscale Frame tile it without overlaps");
     }
 
@@ -651,7 +661,7 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(scene.isAllocated(), "fixture fingers.png loads");
         if (!scene.isAllocated()) return;
 
-        Mosaic mosaic = MosaicMaker().make(scene);
+        Mosaic mosaic = SplineMaker().make(scene);
         const uint64_t hash = mosaicHash(mosaic);
         ofLogNotice("golden") << mosaic.tessels.size() << " Tessels, hash 0x" << ofToHex(hash);
         ofxTestEq(hash, uint64_t(0xcd1a4ddfcf14321bull), "spline Mosaic of fingers.png matches the golden hash");
@@ -679,7 +689,7 @@ class ofApp : public ofxUnitTestsApp {
         MosaicMaker old;
         xml.parse("<mosaic><stable_vertices>1</stable_vertices></mosaic>");
         ofDeserialize(xml, old.parameters);
-        ofxTestEq(old.vertexMode.get(), int(VERTEX_MODE_SPLINE), "an old stable_vertices tag is ignored");
+        ofxTestEq(old.vertexMode.get(), MosaicMaker().vertexMode.get(), "an old stable_vertices tag is ignored");
     }
 
     static std::vector<std::string> names(const std::vector<std::shared_ptr<ofAbstractParameter>>& parameters) {
