@@ -11,6 +11,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.Display
+import android.view.OrientationEventListener
 import android.graphics.ImageDecoder
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -121,11 +122,23 @@ class PreviewPipeline(private val context: Context) {
         }
     }
 
+    // The shutter's rotation follows how the phone is held, from the
+    // accelerometer, not the display: with auto-rotate off the display stays
+    // in portrait, and a photo taken in landscape would come out sideways.
+    // The preview and the analysis keep following the display.
+    private val orientationListener = object : OrientationEventListener(context) {
+        override fun onOrientationChanged(orientation: Int) {
+            val rotation = captureRotationFor(orientation) ?: return
+            if (capture.targetRotation != rotation) capture.targetRotation = rotation
+        }
+    }
+
     /** Starts the camera for [owner]'s lifecycle, showing the raw preview through [surfaceProvider]. */
     fun start(owner: LifecycleOwner, surfaceProvider: Preview.SurfaceProvider) {
         preview.surfaceProvider = surfaceProvider
         updateRotation()
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
+        if (orientationListener.canDetectOrientation()) orientationListener.enable()
         analysis.setAnalyzer(executor, ::analyze)
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
@@ -144,6 +157,7 @@ class PreviewPipeline(private val context: Context) {
     /** Stops the camera and the preview thread. */
     fun stop() {
         displayManager.unregisterDisplayListener(displayListener)
+        orientationListener.disable()
         provider?.unbindAll()
         analysis.clearAnalyzer()
         executor.execute {
@@ -156,7 +170,9 @@ class PreviewPipeline(private val context: Context) {
         val rotation = displayManager.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: return
         analysis.targetRotation = rotation
         preview.targetRotation = rotation
-        capture.targetRotation = rotation
+        // The display's rotation until the accelerometer reports one (and on
+        // a phone without one).
+        if (!orientationListener.canDetectOrientation()) capture.targetRotation = rotation
     }
 
     /**

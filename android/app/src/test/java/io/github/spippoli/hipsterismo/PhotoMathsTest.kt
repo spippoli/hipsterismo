@@ -57,4 +57,25 @@ class PhotoMathsTest {
         )
         assertEquals(0.0, timing.copy(totalMs = 0.0).corePercent, 0.0)
     }
+
+    @Test
+    fun theShutterFollowsHowThePhoneIsHeld() {
+        // Upright, turned right (top of the phone to the right), upside down, turned left.
+        assertEquals(0, captureRotationFor(0))
+        assertEquals(3, captureRotationFor(90))
+        assertEquals(2, captureRotationFor(180))
+        assertEquals(1, captureRotationFor(270))
+        // Each turn covers the 90° around it.
+        assertEquals(0, captureRotationFor(44))
+        assertEquals(3, captureRotationFor(45))
+        assertEquals(3, captureRotationFor(134))
+        assertEquals(2, captureRotationFor(135))
+        assertEquals(2, captureRotationFor(224))
+        assertEquals(1, captureRotationFor(225))
+        assertEquals(1, captureRotationFor(314))
+        assertEquals(0, captureRotationFor(315))
+        assertEquals(0, captureRotationFor(359))
+        // Lying flat: OrientationEventListener.ORIENTATION_UNKNOWN keeps the last rotation.
+        assertEquals(null, captureRotationFor(-1))
+    }
 }

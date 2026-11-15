@@ -146,7 +146,9 @@ fun Shutter(busy: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier) {
             .size(68.dp)
             .clip(CircleShape)
             .clickable(enabled = !busy, role = Role.Button, onClickLabel = "Scatta") { onShoot() }
-            .border(4.dp, Color.White, CircleShape)
+            // Modifier.border draws over the content, so while busy the ring
+            // draws the white circle itself, under its accent arc.
+            .then(if (busy) Modifier else Modifier.border(4.dp, Color.White, CircleShape))
             .semantics {
                 contentDescription = "Scatta"
                 if (busy) stateDescription = "elaborazione"
@@ -157,7 +159,7 @@ fun Shutter(busy: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier) {
     }
 }
 
-/** The mock's ring: a quarter of an accent circle over the shutter's border, a turn every 0.9 s. */
+/** The mock's ring: the shutter's white border with a quarter of an accent circle over it, a turn every 0.9 s. */
 @Composable
 private fun ShutterRing(modifier: Modifier = Modifier) {
     val turn = rememberInfiniteTransition(label = "ring")
@@ -168,6 +170,7 @@ private fun ShutterRing(modifier: Modifier = Modifier) {
     )
     Canvas(modifier.rotate(angle)) {
         val width = 4.dp.toPx()
+        drawCircle(Color.White, radius = (size.minDimension - width) / 2, style = Stroke(width))
         drawArc(
             Accent, startAngle = -135f, sweepAngle = 90f, useCenter = false,
             topLeft = Offset(width / 2, width / 2), size = Size(size.width - width, size.height - width),
