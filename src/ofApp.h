@@ -39,6 +39,10 @@ class ofApp : public ofBaseApp{
         bool drawHipster;
 
         ofxPanel gui;
+        // Read-only name of the active `vertex mode`, shown under its slider.
+        ofParameter<std::string> vertexModeName;
+        ofxLabel vertexModeLabel;
+        ofEventListener vertexModeListener;
 #ifdef LIVE_INPUT
 #ifdef TARGET_LINUX
         // ofVideoGrabber (OF 0.12.1) picks the DMABuf caps that GStreamer >= 1.24
