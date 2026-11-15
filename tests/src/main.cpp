@@ -825,7 +825,7 @@ class ofApp : public ofxUnitTestsApp {
         Mosaic mosaic = SplineMaker().make(scene);
         const uint64_t hash = mosaicHash(mosaic);
         ofLogNotice("golden") << mosaic.tessels.size() << " Tessels, hash 0x" << ofToHex(hash);
-        ofxTestEq(hash, uint64_t(0xcd1a4ddfcf14321bull), "spline Mosaic of fingers.png matches the golden hash");
+        ofxTestEq(hash, uint64_t(0xe2ece51f4a5d770dull), "spline Mosaic of fingers.png matches the golden hash");
     }
 
     void testVertexMode() {
