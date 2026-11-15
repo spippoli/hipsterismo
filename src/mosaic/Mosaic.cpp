@@ -154,7 +154,8 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
     // the triangulation needs distinct points, and spline mode's look
     // depends on this snapping. ofxDelaunay must carry
     // patches/ofxDelaunay-hull-triangles.patch, or it drops flat triangles
-    // along the Frame border.
+    // along the Frame border and overlaps triangles where grid points lie
+    // on one circle (#39).
     std::set<std::pair<float, float>> added;
     auto addPoint = [&](float x, float y) {
         x = std::round(x * 2) / 2;
