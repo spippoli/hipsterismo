@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <queue>
 #include <unordered_map>
@@ -125,21 +126,33 @@ LabFrame blurredLab(const RgbImage& rgb, float sigma) {
 
 // ------------------------------------------- Felzenszwalb–Huttenlocher
 
-struct PixelEdge {
-    int a, b;
+// The edges from each pixel to its right, lower, lower-right and lower-left
+// neighbours (directions 0 to 3), numbered 4 · pixel + direction, which is
+// the order the bucket sort keeps within a bucket.
+struct SortedEdge {
+    uint32_t edge;
     float weight; // Lab distance
 };
 
-// The edges from each pixel to its right, lower, lower-right and lower-left
-// neighbours, sorted by weight with a bucket sort (1/16 ΔE per bucket,
-// stable, so the order is deterministic).
-std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
+// The edges sorted by weight with a bucket sort (1/16 ΔE per bucket, stable,
+// so the order is deterministic). The weights of a row go into `weight`
+// (-1 where the neighbour is outside the Frame) and are counted per bucket
+// while the row is in the cache; then every edge is scattered straight to its
+// place, eight bytes each. Both arrays are written before they are read, so
+// they are left uninitialised (zeroing them cost as much as writing them).
+struct SortedEdges {
+    std::unique_ptr<SortedEdge[]> edges;
+    size_t count = 0;
+    const SortedEdge* begin() const { return edges.get(); }
+    const SortedEdge* end() const { return edges.get() + count; }
+};
+
+SortedEdges sortedEdges(const LabFrame& lab) {
     const int w = lab.width, h = lab.height;
-    std::vector<PixelEdge> edges;
-    edges.reserve(size_t(w) * h * 4);
+    const size_t n = size_t(w) * h;
+    std::unique_ptr<float[]> weight(new float[n * 4]);
     // The Euclidean distance, summed from 0 in channel order.
-    auto distance = [&](int i, int j) {
-        const float *p = lab.at(i), *q = lab.at(j);
+    auto distance = [](const float* p, const float* q) {
         float s = 0;
         for (int c = 0; c < 3; c++) {
             const float d = p[c] - q[c];
@@ -147,24 +160,38 @@ std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
         }
         return std::sqrt(s);
     };
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            const int i = y * w + x;
-            if (x + 1 < w) edges.push_back({i, i + 1, distance(i, i + 1)});
-            if (y + 1 < h) {
-                edges.push_back({i, i + w, distance(i, i + w)});
-                if (x + 1 < w) edges.push_back({i, i + w + 1, distance(i, i + w + 1)});
-                if (x > 0) edges.push_back({i, i + w - 1, distance(i, i + w - 1)});
-            }
-        }
-    }
     const int buckets = 4096;
     auto bucket = [&](float weight) { return std::min(buckets - 1, int(weight * 16.f)); };
-    std::vector<int> start(buckets + 1, 0);
-    for (const PixelEdge& e : edges) start[bucket(e.weight) + 1]++;
+    std::vector<size_t> start(buckets + 1, 0);
+    for (int y = 0; y < h; y++) {
+        const float* row = lab.at(y * w);
+        float* out = &weight[size_t(y) * w * 4];
+        if (y + 1 < h) {
+            const float* below = row + size_t(w) * 3;
+            for (int x = 0; x < w; x++) {
+                const float* p = row + size_t(x) * 3;
+                const float* q = below + size_t(x) * 3;
+                out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
+                out[4 * x + 1] = distance(p, q);
+                out[4 * x + 2] = x + 1 < w ? distance(p, q + 3) : -1.f;
+                out[4 * x + 3] = x > 0 ? distance(p, q - 3) : -1.f;
+            }
+        } else {
+            for (int x = 0; x < w; x++) {
+                const float* p = row + size_t(x) * 3;
+                out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
+                out[4 * x + 1] = out[4 * x + 2] = out[4 * x + 3] = -1.f;
+            }
+        }
+        for (int k = 0; k < 4 * w; k++) {
+            if (out[k] >= 0) start[bucket(out[k]) + 1]++;
+        }
+    }
     for (int i = 0; i < buckets; i++) start[i + 1] += start[i];
-    std::vector<PixelEdge> sorted(edges.size());
-    for (const PixelEdge& e : edges) sorted[start[bucket(e.weight)]++] = e;
+    SortedEdges sorted{std::unique_ptr<SortedEdge[]>(new SortedEdge[start[buckets]]), start[buckets]};
+    for (size_t e = 0; e < n * 4; e++) {
+        if (weight[e] >= 0) sorted.edges[start[bucket(weight[e])]++] = {uint32_t(e), weight[e]};
+    }
     return sorted;
 }
 
@@ -172,11 +199,13 @@ std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
 // heavier than either one's internal difference plus k / size. Min size 1,
 // so there is no small-component pass. Returns a label per pixel, 0..count-1.
 std::vector<int> felzenszwalb(const LabFrame& lab, int& count) {
-    const int n = lab.width * lab.height;
+    const int w = lab.width, n = lab.width * lab.height;
     DisjointSets sets(n);
     std::vector<float> threshold(n, segmentationK);
-    for (const PixelEdge& e : sortedEdges(lab)) {
-        int a = sets.find(e.a), b = sets.find(e.b);
+    const int offset[4] = {1, w, w + 1, w - 1};
+    for (const SortedEdge& e : sortedEdges(lab)) {
+        const int i = int(e.edge >> 2);
+        int a = sets.find(i), b = sets.find(i + offset[e.edge & 3]);
         if (a != b && e.weight <= threshold[a] && e.weight <= threshold[b]) {
             int root = sets.unite(a, b);
             threshold[root] = e.weight + segmentationK / sets.size[root];
