@@ -54,7 +54,7 @@ inline int nextVertexMode(int mode) {
 //
 // Three ways of choosing the vertices, picked by `vertex mode` (a VertexMode):
 //
-// - Spline (0, default, the original look): all Contours are joined into one
+// - Spline (0, the original look): all Contours are joined into one
 //   spline and sampled `interpolation resolution` times. Vertices move with
 //   every bit of noise. Each Tessel takes the Frame colour at its centroid.
 // - Stable (1): the Mosaic stays still from one Frame to the next.
@@ -64,12 +64,12 @@ inline int nextVertexMode(int mode) {
 //   `persistence` Frames after its Contour has left. Sensor noise therefore
 //   only moves a vertex when a Contour enters or leaves a cell. Each Tessel
 //   takes the mean colour of the 5x5 pixels around its centroid.
-// - Adaptive (2): no Canny and no ContourFinder. The Frame is segmented into
-//   Patches of at least `min patch area` pixels, and one constrained Delaunay
-//   triangulation follows their exact boundaries, so no Tessel crosses two
-//   Patches. Each Tessel takes the mean colour of the pixels inside it, and
-//   the Contours are the Patch boundaries off the Frame border. See
-//   Adaptive.h for the pipeline.
+// - Adaptive (2, default): no Canny and no ContourFinder. The Frame is
+//   segmented into Patches of at least `min patch area` pixels, and one
+//   constrained Delaunay triangulation follows their boundaries, so no
+//   Tessel crosses two Patches. Each Tessel takes the mean colour of the
+//   pixels inside it, and the Contours are the Patch boundaries off the
+//   Frame border. See Adaptive.h for the pipeline.
 //
 // In stable mode make() depends on the Frames seen so far (only through the
 // active cells): the same sequence of Frames and parameters always gives the

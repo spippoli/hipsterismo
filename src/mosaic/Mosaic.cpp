@@ -39,7 +39,7 @@ MosaicMaker::MosaicMaker() {
     parameters.add(threshold1.set("first threshold", 0, 0, 400));
     parameters.add(threshold2.set("second threshold", 20, 0, 400));
     parameters.add(blurIterations.set("blur iteration", 9, 1, 31));
-    parameters.add(vertexMode.set("vertex mode", VERTEX_MODE_SPLINE, 0, VERTEX_MODE_COUNT - 1));
+    parameters.add(vertexMode.set("vertex mode", VERTEX_MODE_ADAPTIVE, 0, VERTEX_MODE_COUNT - 1));
     parameters.add(cellSize.set("cell size", 5, 2, 40));
     parameters.add(persistence.set("persistence", 2, 0, 30));
     parameters.add(resolution.set("interpolation resolution", 1000, 2, 10000));
