@@ -1,8 +1,42 @@
 diff --git a/libs/Delaunay/src/Delaunay.cpp b/libs/Delaunay/src/Delaunay.cpp
-index eaa7b39..b1afaf6 100755
+index eaa7b39..ff57f4c 100755
 --- a/libs/Delaunay/src/Delaunay.cpp
 +++ b/libs/Delaunay/src/Delaunay.cpp
-@@ -119,13 +119,17 @@ int Triangulate(int nv, XYZ pxyz[], ITRIANGLE v[], int &ntri)
+@@ -62,6 +62,33 @@
+     return((drsqr <= rsqr) ? true : false);
+ }
+ 
++////////////////////////////////////////////////////////////////////////
++// InCircle() :
++//   Return true if a point (xp,yp) is inside or on the circumcircle of the
++//   triangle (x1,y1), (x2,y2), (x3,y3), from the sign of the in-circle
++//   determinant. Unlike CircumCircle()'s rounded centre and radius, it
++//   gives the same answer for every triangle on one circle: it is exact
++//   when the coordinates are multiples of 0.5 below about 2600. A
++//   degenerate triangle has no circumcircle, as in CircumCircle().
++////////////////////////////////////////////////////////////////////////
++
++static bool InCircle(double xp, double yp, double x1, double y1, double x2,
++double y2, double x3, double y3){
++    double orient = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
++    if(orient == 0)
++        return false;
++    double adx = x1 - xp, ady = y1 - yp;
++    double bdx = x2 - xp, bdy = y2 - yp;
++    double cdx = x3 - xp, cdy = y3 - yp;
++    double alift = adx * adx + ady * ady;
++    double blift = bdx * bdx + bdy * bdy;
++    double clift = cdx * cdx + cdy * cdy;
++    double det = adx * (bdy * clift - cdy * blift)
++               - ady * (bdx * clift - cdx * blift)
++               + alift * (bdx * cdy - cdx * bdy);
++    return (orient > 0) ? det >= 0 : det <= 0;
++}
++
+ ///////////////////////////////////////////////////////////////////////////////
+ // Triangulate() :
+ //   Triangulation subroutine
+@@ -119,13 +146,17 @@
     // The supertriangle coordinates are added to the end of the
     // vertex list. The supertriangle is the first triangle in
     // the triangle list.
@@ -23,14 +57,30 @@ index eaa7b39..b1afaf6 100755
      pxyz[nv+2].y = ymid - dmax;
      pxyz[nv+0].z = 0.0;
      v[0].p1 = nv;
-@@ -159,7 +163,9 @@ int Triangulate(int nv, XYZ pxyz[], ITRIANGLE v[], int &ntri)
+@@ -155,11 +186,25 @@
+             x3 = pxyz[v[j].p3].x;
+             y3 = pxyz[v[j].p3].y;
+             inside = CircumCircle(xp, yp, x1, y1, x2, y2, x3, y3, xc, yc, r);
++            // Points on one circle are common (any four corners of an
++            // axis-aligned rectangle), and CircumCircle() can put such a
++            // point inside one of the circle's triangles and outside
++            // another: the cavity is then not star-shaped and the new
++            // triangles overlap. Decide exactly between real points, and
++            // keep CircumCircle() for the supertriangle's, whose huge
++            // coordinates the determinant would not hold exactly.
++            bool real = v[j].p1 < nv && v[j].p2 < nv && v[j].p3 < nv;
++            if(real)
++                inside = InCircle(xp, yp, x1, y1, x2, y2, x3, y3);
+             //    if (xc + r < xp)
              
              // Suggested
              // if (xc + r + EPSILON < xp)
 -            if (xc < xp && ((xp-xc)*(xp-xc)) > r)
 +            // r is the radius (CircumCircle returns sqrt(rsqr)): the triangle
-+            // is complete once xp is right of its circumcircle.
-+            if (xc < xp && (xp-xc) > r)
++            // is complete once xp is right of its circumcircle. A real
++            // triangle keeps a margin for the rounded xc and r, so a later
++            // point on its circle still meets InCircle().
++            if (xc < xp && (xp-xc) > r + (real ? EPSILON : 0))
                  complete[j] = true;
              
              if(inside){
