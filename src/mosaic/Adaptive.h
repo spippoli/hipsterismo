@@ -10,6 +10,7 @@ namespace adaptive {
 // Fixed pipeline constants, absolute for now; #32 will scale them by Frame size.
 constexpr float blurSigma = 0.8f; // Gaussian blur of the Lab Frame, in px
 constexpr float segmentationK = 5.0f; // Felzenszwalb–Huttenlocher k, in ΔE (Lab units); min size 1
+constexpr double boundaryEpsilon = 3.0; // Douglas–Peucker tolerance of the Patch boundaries, in px
 
 // The Mosaic of an RGB Frame whose Tessels follow its Patches:
 //
@@ -22,9 +23,12 @@ constexpr float segmentationK = 5.0f; // Felzenszwalb–Huttenlocher k, in ΔE (
 // 3. Trace the Patch boundaries along pixel edges ("cracks"), as chains
 //    between junctions shared by the Patches on either side. The outside of
 //    the Frame counts as a Patch, so the Frame border is traced too.
-// 4. Triangulate the Frame rectangle once with CDT, the exact chains as
+// 4. Simplify each chain once with Douglas–Peucker (boundaryEpsilon), its
+//    ends kept. Where simplified chains cross or touch, fall back to the exact
+//    chains involved, every corner kept, until no conflict remains.
+// 5. Triangulate the Frame rectangle once with CDT, the simplified chains as
 //    constraint edges and no Steiner points.
-// 5. Colour each Tessel with the mean of the Frame pixels whose centre lies
+// 6. Colour each Tessel with the mean of the Frame pixels whose centre lies
 //    inside it (top-left rule on edges; the pixel at the centroid if none).
 //
 // The Contours are the chains not on the Frame border: open between two
