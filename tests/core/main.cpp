@@ -205,15 +205,19 @@ int main(int argc, char** argv) {
     testUniformFrame();
     // The adaptive goldens at min patch area 32. fingers.png's is the
     // openFrameworks suite's adaptive golden too.
-    const Fixture fixtures[] = {
+    const Fixture goldens[] = {
         {"fingers.png", 0xe0d145733a499498ull},
         {"fingers-003.png", 0xf64474efb9eefad3ull},
         {"fingers-060.png", 0x3d0b480c385887c9ull},
     };
-    for (const Fixture& fixture : fixtures) testFixture(fixture);
+    for (const Fixture& fixture : goldens) testFixture(fixture);
     RgbPixels fingers;
     std::string error;
-    if (loadPng(std::string(FIXTURES) + "/fingers.png", fingers, error)) testStride(fingers);
+    if (loadPng(fixtures + "/fingers.png", fingers, error)) {
+        testStride(fingers);
+    } else {
+        check(false, "fingers.png loads for the stride test: " + error);
+    }
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures;
 }
