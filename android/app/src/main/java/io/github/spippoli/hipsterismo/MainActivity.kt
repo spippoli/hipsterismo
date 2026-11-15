@@ -38,8 +38,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        // A shutter JPEG left over from a photo that never finished.
-        if (savedInstanceState == null) photoCache(this).deleteRecursively()
+        // A shutter JPEG left over from a photo that never finished, and the
+        // PNG of the last Condividi (#58).
+        if (savedInstanceState == null) {
+            photoCache(this).deleteRecursively()
+            MosaicExport.shareCache(this).deleteRecursively()
+        }
         val previewView = PreviewView(this).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
