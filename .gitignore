@@ -17,3 +17,13 @@ openFrameworks-Info.plist
 
 # CMake builds of the core tests
 tests/core/build*/
+
+# Android app (android/): Gradle, CMake and IDE outputs
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+android/.idea/
+*.iml
