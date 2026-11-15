@@ -445,12 +445,29 @@ struct Chain {
 // the corners with three or more cracks, plus the four Frame corners; a
 // junction-free loop starts at its first corner in scan order.
 std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
-    auto at = [&](int x, int y) { return (x < 0 || y < 0 || x >= w || y >= h) ? -1 : label[y * w + x]; };
     // Horizontal crack (cx, cy)-(cx+1, cy) between pixels (cx, cy-1) and (cx, cy);
     // vertical crack (cx, cy)-(cx, cy+1) between pixels (cx-1, cy) and (cx, cy).
-    auto hasH = [&](int cx, int cy) { return cx >= 0 && cx < w && cy >= 0 && cy <= h && at(cx, cy - 1) != at(cx, cy); };
-    auto hasV = [&](int cx, int cy) { return cy >= 0 && cy < h && cx >= 0 && cx <= w && at(cx - 1, cy) != at(cx, cy); };
-    std::vector<uint8_t> visitedH(size_t(w) * (h + 1), 0), visitedV(size_t(w + 1) * h, 0);
+    // Each crack's state, found once: 0 no crack, 1 a crack not yet walked,
+    // 2 a walked one.
+    std::vector<uint8_t> crackH(size_t(w) * (h + 1)), crackV(size_t(w + 1) * h);
+    for (int cy = 0; cy <= h; cy++) {
+        const int* above = cy > 0 ? &label[size_t(cy - 1) * w] : nullptr;
+        const int* below = cy < h ? &label[size_t(cy) * w] : nullptr;
+        uint8_t* out = &crackH[size_t(cy) * w];
+        if (above && below) {
+            for (int cx = 0; cx < w; cx++) out[cx] = above[cx] != below[cx];
+        } else {
+            for (int cx = 0; cx < w; cx++) out[cx] = 1; // the Frame border (label -1 outside)
+        }
+    }
+    for (int cy = 0; cy < h; cy++) {
+        const int* row = &label[size_t(cy) * w];
+        uint8_t* out = &crackV[size_t(cy) * (w + 1)];
+        out[0] = out[w] = 1;
+        for (int cx = 1; cx < w; cx++) out[cx] = row[cx - 1] != row[cx];
+    }
+    auto hasH = [&](int cx, int cy) { return cx >= 0 && cx < w && cy >= 0 && cy <= h && crackH[size_t(cy) * w + cx]; };
+    auto hasV = [&](int cx, int cy) { return cy >= 0 && cy < h && cx >= 0 && cx <= w && crackV[size_t(cy) * (w + 1) + cx]; };
 
     std::vector<uint8_t> junction(size_t(w + 1) * (h + 1), 0);
     for (int cy = 0; cy <= h; cy++) {
@@ -461,14 +478,14 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
         }
     }
 
-    // The visited flag of the crack leaving (cx, cy) in direction `dir`
-    // (0 right, 1 down, 2 left, 3 up), or null if there is no crack there.
+    // The state of the crack leaving (cx, cy) in direction `dir` (0 right,
+    // 1 down, 2 left, 3 up), or null if there is no crack there.
     auto crack = [&](int cx, int cy, int dir) -> uint8_t* {
         switch (dir) {
-        case 0: return hasH(cx, cy) ? &visitedH[cy * w + cx] : nullptr;
-        case 1: return hasV(cx, cy) ? &visitedV[cy * (w + 1) + cx] : nullptr;
-        case 2: return hasH(cx - 1, cy) ? &visitedH[cy * w + cx - 1] : nullptr;
-        default: return hasV(cx, cy - 1) ? &visitedV[(cy - 1) * (w + 1) + cx] : nullptr;
+        case 0: return hasH(cx, cy) ? &crackH[cy * w + cx] : nullptr;
+        case 1: return hasV(cx, cy) ? &crackV[cy * (w + 1) + cx] : nullptr;
+        case 2: return hasH(cx - 1, cy) ? &crackH[cy * w + cx - 1] : nullptr;
+        default: return hasV(cx, cy - 1) ? &crackV[(cy - 1) * (w + 1) + cx] : nullptr;
         }
     };
     const int dx[4] = {1, 0, -1, 0}, dy[4] = {0, 1, 0, -1};
@@ -480,7 +497,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
         chain.points.push_back({cx, cy});
         const int sx = cx, sy = cy;
         while (true) {
-            *crack(cx, cy, dir) = 1;
+            *crack(cx, cy, dir) = 2;
             cx += dx[dir];
             cy += dy[dir];
             chain.points.push_back({cx, cy});
@@ -489,7 +506,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
             int next = -1;
             for (int d = 0; d < 4 && next < 0; d++) {
                 uint8_t* c = d == ((dir + 2) & 3) ? nullptr : crack(cx, cy, d);
-                if (c && !*c) next = d;
+                if (c && *c == 1) next = d;
             }
             if (next < 0) break;
             dir = next;
@@ -501,7 +518,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
             if (!junction[cy * (w + 1) + cx]) continue;
             for (int dir = 0; dir < 4; dir++) {
                 uint8_t* c = crack(cx, cy, dir);
-                if (c && !*c) walk(cx, cy, dir, false);
+                if (c && *c == 1) walk(cx, cy, dir, false);
             }
         }
     }
@@ -509,7 +526,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
         for (int cx = 0; cx <= w; cx++) {
             for (int dir = 0; dir < 2; dir++) {
                 uint8_t* c = crack(cx, cy, dir);
-                if (c && !*c) walk(cx, cy, dir, true);
+                if (c && *c == 1) walk(cx, cy, dir, true);
             }
         }
     }
