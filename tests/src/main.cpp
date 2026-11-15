@@ -274,6 +274,7 @@ class ofApp : public ofxUnitTestsApp {
         testPersistence();
         testStabilityUnderNoise();
         testSplineMode();
+        testSplineTilesGrayscaleFrame();
         testSplineGolden();
         testVertexMode();
         testParametersPerMode();
@@ -291,6 +292,7 @@ class ofApp : public ofxUnitTestsApp {
         testAdaptivePixelFormats();
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
+        testDelaunayTilesCocircularClusters();
         testCommandLineWithoutArguments();
         testCommandLineWithoutMode();
         testCommandLineModes();
@@ -395,6 +397,36 @@ class ofApp : public ofxUnitTestsApp {
             if (!delaunayTilesRectangle(points, 160, 120)) failures++;
         }
         ofxTestEq(failures, 0, "Delaunay tiles the rectangle for 200 random point sets");
+    }
+
+    // Dense clusters of half-pixel points, like the spline's samples around
+    // a Contour corner: many groups of four or more lie on one circle. The
+    // Mosaic's border points (8 segments a side) come first, as in make().
+    void testDelaunayTilesCocircularClusters() {
+        std::mt19937 rng(39);
+        int failures = 0;
+        for (int set = 0; set < 200; set++) {
+            std::vector<glm::vec2> points;
+            for (int i = 0; i < 8; i++) {
+                float t = i / 8.f;
+                points.insert(points.end(), {{t * 160, 0}, {160, t * 120}, {160 - t * 160, 120}, {0, 120 - t * 120}});
+            }
+            std::uniform_int_distribution<int> centreX(0, 320), centreY(0, 240), clusters(1, 6), spread(2, 12),
+                count(5, 60);
+            for (int c = clusters(rng); c > 0; c--) {
+                glm::vec2 centre(centreX(rng) / 2.f, centreY(rng) / 2.f);
+                int s = spread(rng);
+                std::uniform_int_distribution<int> offset(-s, s);
+                for (int i = count(rng); i > 0; i--) {
+                    // Two statements: the x offset is drawn first on every compiler.
+                    float x = ofClamp(centre.x + offset(rng) / 2.f, 0, 160);
+                    glm::vec2 p(x, ofClamp(centre.y + offset(rng) / 2.f, 0, 120));
+                    if (std::find(points.begin(), points.end(), p) == points.end()) points.push_back(p);
+                }
+            }
+            if (!delaunayTilesRectangle(points, 160, 120)) failures++;
+        }
+        ofxTestEq(failures, 0, "Delaunay tiles the rectangle for 200 sets of cocircular clusters");
     }
 
     void testEmptyFrame() {
@@ -547,6 +579,15 @@ class ofApp : public ofxUnitTestsApp {
         MosaicMaker freshSpline;
         ofxTest(sameMosaic(spline.make(uniform), freshSpline.make(uniform)),
                 "spline mode: the Mosaic depends only on the current Frame");
+    }
+
+    // The grayscale rectangle's Contours give spline samples on one circle
+    // (#39): an unpatched in-circle test overlaps Tessels there.
+    void testSplineTilesGrayscaleFrame() {
+        ofPixels gray = rectangleFrame(background, foreground);
+        gray.setImageType(OF_IMAGE_GRAYSCALE);
+        ofxTest(coversFrame(MosaicMaker().make(gray), 160, 120),
+                "spline mode: Tessels of a grayscale Frame tile it without overlaps");
     }
 
     // Spline mode must keep reproducing its output exactly. The hash was
