@@ -55,22 +55,32 @@ double coveredArea(const Mosaic& mosaic) {
 // Triangulates `points` with ofxDelaunay and checks that the triangles tile
 // the width x height rectangle exactly: every pixel's sample point (off the
 // half-pixel grid, at offsets an edge between half-pixel points is unlikely
-// to pass through) lies in exactly one triangle.
+// to pass through) lies in exactly one triangle. A proper triangulation also
+// has no zero-area triangles, and 2n - 2 - h triangles for n points of which
+// h lie on the border: the points must include the corners and lie in the
+// rectangle.
 bool delaunayTilesRectangle(const std::vector<glm::vec2>& points, int width, int height) {
     ofxDelaunay delaunay;
     for (const glm::vec2& p : points) delaunay.addPoint(ofPoint(p.x, p.y));
     delaunay.triangulate();
     const ofMesh& mesh = delaunay.triangleMesh;
     std::vector<int> cover(width * height, 0);
+    int flat = 0;
     for (std::size_t i = 0; i + 2 < mesh.getNumIndices(); i += 3) {
         glm::dvec2 a(mesh.getVertex(mesh.getIndex(i))), b(mesh.getVertex(mesh.getIndex(i + 1))),
             c(mesh.getVertex(mesh.getIndex(i + 2)));
         auto side = [](glm::dvec2 p, glm::dvec2 q, glm::dvec2 r) {
             return (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
         };
+        if (side(a, b, c) == 0) flat++;
         if (side(a, b, c) < 0) std::swap(b, c);
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
+        // Only the pixels in the triangle's bounding box can be inside it.
+        int x0 = std::max(0, int(std::floor(std::min({a.x, b.x, c.x}))));
+        int x1 = std::min(width - 1, int(std::ceil(std::max({a.x, b.x, c.x}))));
+        int y0 = std::max(0, int(std::floor(std::min({a.y, b.y, c.y}))));
+        int y1 = std::min(height - 1, int(std::ceil(std::max({a.y, b.y, c.y}))));
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
                 glm::dvec2 s(x + 0.3713137, y + 0.6180339);
                 if (side(a, b, s) > 0 && side(b, c, s) > 0 && side(c, a, s) > 0) cover[y * width + x]++;
             }
@@ -81,11 +91,18 @@ bool delaunayTilesRectangle(const std::vector<glm::vec2>& points, int width, int
         if (n == 0) gaps++;
         if (n > 1) overlaps++;
     }
-    if (gaps || overlaps) {
-        ofLogError("delaunayTilesRectangle") << points.size() << " points: " << gaps << " uncovered, "
-                                             << overlaps << " overlapped pixels";
+    int onBorder = 0;
+    for (const glm::vec2& p : points) {
+        if (p.x == 0 || p.y == 0 || p.x == width || p.y == height) onBorder++;
     }
-    return gaps == 0 && overlaps == 0;
+    int triangles = mesh.getNumIndices() / 3;
+    int expected = 2 * int(points.size()) - 2 - onBorder;
+    if (gaps || overlaps || flat || triangles != expected) {
+        ofLogError("delaunayTilesRectangle") << points.size() << " points: " << gaps << " uncovered, "
+                                             << overlaps << " overlapped pixels, " << flat << " zero-area of "
+                                             << triangles << " triangles (expected " << expected << ")";
+    }
+    return gaps == 0 && overlaps == 0 && flat == 0 && triangles == expected;
 }
 
 // The corners of a width x height rectangle, plus `extra`.
@@ -395,6 +412,9 @@ class ofApp : public ofxUnitTestsApp {
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
         testDelaunayTilesCocircularClusters();
+        testDelaunayCollinearBorderPoints();
+        testDelaunayTilesWithOnlyCornersOnBorder();
+        testDelaunayTilesLargeRectangles();
         testCommandLineWithoutArguments();
         testCommandLineWithoutMode();
         testCommandLineModes();
@@ -529,6 +549,100 @@ class ofApp : public ofxUnitTestsApp {
             if (!delaunayTilesRectangle(points, 160, 120)) failures++;
         }
         ofxTestEq(failures, 0, "Delaunay tiles the rectangle for 200 sets of cocircular clusters");
+    }
+
+    // Two points on a horizontal border line and a lower supertriangle
+    // vertex, which lies far out almost on that line, make a triangle whose
+    // circumcircle is some 1e12 px wide. Rounded, a third point on the line
+    // came out inside it: each one added a zero-area triangle, and with few
+    // other points the triangulator wrote past its triangle array (3 per
+    // point).
+    void testDelaunayCollinearBorderPoints() {
+        ofxTest(delaunayTilesRectangle(withCorners(160, 120, {{25, 0}, {50, 0}, {75, 0}, {100, 0}, {125, 0}, {150, 0}}),
+                                       160, 120),
+                "Delaunay triangulates points on the bottom border without flat triangles");
+        std::vector<glm::vec2> both;
+        for (int x = 10; x < 160; x += 10) {
+            both.push_back({x, 0});
+            both.push_back({x - 5, 120});
+        }
+        ofxTest(delaunayTilesRectangle(withCorners(160, 120, both), 160, 120),
+                "Delaunay triangulates points on the top and bottom borders without flat triangles");
+    }
+
+    // No border points but the four corners, unlike the Mosaic's: clusters
+    // inside the rectangle (many groups on one circle) with some of their
+    // points moved onto a border line, and sets of points on the border
+    // lines alone. make() always adds its 8 points a side, so this calls
+    // ofxDelaunay directly.
+    void testDelaunayTilesWithOnlyCornersOnBorder() {
+        std::mt19937 rng(42);
+        int failures = 0;
+        for (int set = 0; set < 200; set++) {
+            std::vector<glm::vec2> points = withCorners(160, 120, {});
+            auto add = [&](glm::vec2 p) {
+                if (std::find(points.begin(), points.end(), p) == points.end()) points.push_back(p);
+            };
+            std::uniform_int_distribution<int> centreX(0, 320), centreY(0, 240), clusters(1, 6), spread(2, 12),
+                count(5, 60), line(0, 9);
+            if (set % 4 == 3) {
+                // only points on the border lines
+                for (int i = count(rng); i > 0; i--) {
+                    int l = line(rng) % 4;
+                    float x = centreX(rng) / 2.f, y = centreY(rng) / 2.f;
+                    add(l == 0 ? glm::vec2(x, 0) : l == 1 ? glm::vec2(160, y) : l == 2 ? glm::vec2(x, 120) : glm::vec2(0, y));
+                }
+            } else {
+                for (int c = clusters(rng); c > 0; c--) {
+                    glm::vec2 centre(centreX(rng) / 2.f, centreY(rng) / 2.f);
+                    int s = spread(rng);
+                    std::uniform_int_distribution<int> offset(-s, s);
+                    for (int i = count(rng); i > 0; i--) {
+                        // Separate statements: the draws happen in this order on every compiler.
+                        float x = ofClamp(centre.x + offset(rng) / 2.f, 0.5f, 159.5f);
+                        float y = ofClamp(centre.y + offset(rng) / 2.f, 0.5f, 119.5f);
+                        int l = line(rng);
+                        if (l == 0) x = 0;
+                        if (l == 1) y = 0;
+                        if (l == 2) x = 160;
+                        if (l == 3) y = 120;
+                        add({x, y});
+                    }
+                }
+            }
+            if (!delaunayTilesRectangle(points, 160, 120)) failures++;
+        }
+        ofxTestEq(failures, 0, "Delaunay tiles the rectangle for 200 sets with only the corners on the border");
+    }
+
+    // The Mosaic's border points and clusters, as in
+    // testDelaunayTilesCocircularClusters, in a 1280x720 rectangle: the
+    // larger the rectangle, the more often rounding near the hull broke the
+    // cavity and triangles overlapped.
+    void testDelaunayTilesLargeRectangles() {
+        std::mt19937 rng(720);
+        int failures = 0;
+        for (int set = 0; set < 40; set++) {
+            std::vector<glm::vec2> points;
+            for (int i = 0; i < 8; i++) {
+                float t = i / 8.f;
+                points.insert(points.end(), {{t * 1280, 0}, {1280, t * 720}, {1280 - t * 1280, 720}, {0, 720 - t * 720}});
+            }
+            std::uniform_int_distribution<int> centreX(0, 2560), centreY(0, 1440), clusters(1, 6), spread(2, 12),
+                count(5, 60);
+            for (int c = clusters(rng); c > 0; c--) {
+                glm::vec2 centre(centreX(rng) / 2.f, centreY(rng) / 2.f);
+                int s = spread(rng);
+                std::uniform_int_distribution<int> offset(-s, s);
+                for (int i = count(rng); i > 0; i--) {
+                    float x = ofClamp(centre.x + offset(rng) / 2.f, 0, 1280);
+                    glm::vec2 p(x, ofClamp(centre.y + offset(rng) / 2.f, 0, 720));
+                    if (std::find(points.begin(), points.end(), p) == points.end()) points.push_back(p);
+                }
+            }
+            if (!delaunayTilesRectangle(points, 1280, 720)) failures++;
+        }
+        ofxTestEq(failures, 0, "Delaunay tiles a 1280x720 rectangle for 40 sets of cocircular clusters");
     }
 
     void testEmptyFrame() {
@@ -711,7 +825,7 @@ class ofApp : public ofxUnitTestsApp {
         Mosaic mosaic = SplineMaker().make(scene);
         const uint64_t hash = mosaicHash(mosaic);
         ofLogNotice("golden") << mosaic.tessels.size() << " Tessels, hash 0x" << ofToHex(hash);
-        ofxTestEq(hash, uint64_t(0xcd1a4ddfcf14321bull), "spline Mosaic of fingers.png matches the golden hash");
+        ofxTestEq(hash, uint64_t(0xe2ece51f4a5d770dull), "spline Mosaic of fingers.png matches the golden hash");
     }
 
     void testVertexMode() {
