@@ -65,7 +65,8 @@ inline int nextVertexMode(int mode) {
 //   only moves a vertex when a Contour enters or leaves a cell. Each Tessel
 //   takes the mean colour of the 5x5 pixels around its centroid.
 // - Adaptive (2, default): no Canny and no ContourFinder. The Frame is
-//   segmented into Patches of at least `min patch area` pixels, and one
+//   segmented into Patches of at least `min patch area` pixels (px² at
+//   320x240, scaled with the Frame area like its other sizes), and one
 //   constrained Delaunay triangulation follows their boundaries, so no
 //   Tessel crosses two Patches. Each Tessel takes the mean colour of the
 //   pixels inside it, and the Contours are the Patch boundaries off the
@@ -107,7 +108,7 @@ public:
     ofParameter<int> minArea;
     ofParameter<int> maxArea;
     ofParameter<bool> findHoles;
-    ofParameter<int> minPatchArea; // px², adaptive only
+    ofParameter<int> minPatchArea; // px² at 320x240, scaled with the Frame area; adaptive only
 
 private:
     using Cell = std::pair<int, int>;
