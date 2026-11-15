@@ -50,6 +50,27 @@ MosaicMaker::MosaicMaker() {
     finder.setThreshold(128);
 }
 
+std::vector<std::shared_ptr<ofAbstractParameter>> MosaicMaker::parametersFor(int mode) {
+    auto usedIn = [&](const ofAbstractParameter& parameter) {
+        if (parameter.isReferenceTo(cellSize) || parameter.isReferenceTo(persistence)) {
+            return mode == VERTEX_MODE_STABLE;
+        }
+        if (parameter.isReferenceTo(resolution)) {
+            return mode == VERTEX_MODE_SPLINE;
+        }
+        return true;
+    };
+    std::vector<std::shared_ptr<ofAbstractParameter>> shown;
+    for (auto& parameter : parameters) {
+        if (parameter->isReferenceTo(vertexMode)) {
+            shown.insert(shown.begin(), parameter);
+        } else if (usedIn(*parameter)) {
+            shown.push_back(parameter);
+        }
+    }
+    return shown;
+}
+
 void MosaicMaker::reset() {
     cellAge.clear();
 }

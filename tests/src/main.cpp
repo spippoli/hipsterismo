@@ -214,6 +214,8 @@ class ofApp : public ofxUnitTestsApp {
         testSplineMode();
         testSplineGolden();
         testVertexMode();
+        testParametersPerMode();
+        testSettingsRoundTrip();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -509,6 +511,80 @@ class ofApp : public ofxUnitTestsApp {
         xml.parse("<mosaic><stable_vertices>1</stable_vertices></mosaic>");
         ofDeserialize(xml, old.parameters);
         ofxTestEq(old.vertexMode.get(), int(VERTEX_MODE_SPLINE), "an old stable_vertices tag is ignored");
+    }
+
+    static std::vector<std::string> names(const std::vector<std::shared_ptr<ofAbstractParameter>>& parameters) {
+        std::vector<std::string> result;
+        for (const auto& parameter : parameters) result.push_back(parameter->getName());
+        return result;
+    }
+
+    void testParametersPerMode() {
+        MosaicMaker maker;
+        const std::vector<std::string> spline = {
+            "vertex mode", "first threshold", "second threshold", "blur iteration",
+            "interpolation resolution", "min area", "max area", "find holes"};
+        const std::vector<std::string> stable = {
+            "vertex mode", "first threshold", "second threshold", "blur iteration",
+            "cell size", "persistence", "min area", "max area", "find holes"};
+        ofxTest(names(maker.parametersFor(VERTEX_MODE_SPLINE)) == spline,
+                "spline mode shows its parameters, without cell size and persistence");
+        ofxTest(names(maker.parametersFor(VERTEX_MODE_STABLE)) == stable,
+                "stable mode shows its parameters, without interpolation resolution");
+
+        auto shown = maker.parametersFor(VERTEX_MODE_STABLE);
+        ofxTest(shown[0]->isReferenceTo(maker.vertexMode), "parametersFor() gives the maker's own vertex mode");
+
+        bool allInGroup = true;
+        for (int mode = 0; mode < VERTEX_MODE_COUNT; mode++) {
+            for (const auto& parameter : maker.parametersFor(mode)) {
+                bool found = false;
+                for (const auto& own : maker.parameters) found = found || own->isReferenceTo(*parameter);
+                allInGroup = allInGroup && found;
+            }
+        }
+        ofxTest(allInGroup, "every shown parameter is one of the maker's parameters");
+    }
+
+    // The app saves and loads the whole group, named "panel", whatever the
+    // panel shows.
+    void testSettingsRoundTrip() {
+        MosaicMaker saved;
+        saved.parameters.setName("panel");
+        saved.vertexMode = VERTEX_MODE_SPLINE;
+        saved.threshold1 = 11;
+        saved.cellSize = 17;
+        saved.persistence = 7;
+        saved.resolution = 1234;
+        saved.findHoles = false;
+        ofXml xml;
+        ofSerialize(xml, saved.parameters);
+        ofxTestEq(xml.getChild("panel").getChild("cell_size").getIntValue(), 17,
+                  "a parameter hidden in spline mode is saved under <panel>");
+        ofxTestEq(xml.getChild("panel").getChild("first_threshold").getIntValue(), 11,
+                  "settings keep their <panel><first_threshold> layout");
+
+        MosaicMaker loaded;
+        loaded.parameters.setName("panel");
+        loaded.vertexMode = VERTEX_MODE_STABLE;
+        ofXml reread;
+        reread.parse(xml.toString());
+        ofDeserialize(reread, loaded.parameters);
+        bool same = true;
+        for (size_t i = 0; i < saved.parameters.size(); i++) {
+            same = same && saved.parameters.get(i).toString() == loaded.parameters.get(i).toString();
+        }
+        ofxTest(same, "loading restores every parameter, whatever mode was active");
+        ofxTestEq(loaded.persistence.get(), 7, "persistence round-trips");
+        ofxTestEq(loaded.resolution.get(), 1234, "interpolation resolution round-trips");
+
+        MosaicMaker old;
+        old.parameters.setName("panel");
+        xml.parse("<panel><first_threshold>3</first_threshold><second_threshold>40</second_threshold>"
+                  "<blur_iteration>6</blur_iteration><stable_vertices>1</stable_vertices></panel>");
+        ofDeserialize(xml, old.parameters);
+        ofxTest(old.threshold1 == 3 && old.threshold2 == 40 && old.blurIterations == 6,
+                "a settings.xml from before vertex mode still loads");
     }
 
     void testContourAreaFilter() {

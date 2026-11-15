@@ -11,30 +11,21 @@ void ofApp::setup(){
     ofSetVerticalSync(true);
     ofEnableAntiAliasing();
 
-    // The panel's root group must stay named "panel" so settings.xml keeps
-    // loading. It holds the Mosaic parameters in their order, with the name
-    // of the active vertex mode right after `vertex mode`; that label is not
-    // saved.
+    // settings.xml keeps the Mosaic parameters under <panel>, so the group
+    // is renamed for ofSerialize; the panel header has the same name.
+    mosaicMaker.parameters.setName("panel");
     vertexModeName.set("mode", vertexModeNames[mosaicMaker.vertexMode]);
     vertexModeName.setSerializable(false);
     vertexModeListener = mosaicMaker.vertexMode.newListener([this](int& mode) {
         vertexModeName = vertexModeNames[ofClamp(mode, 0, VERTEX_MODE_COUNT - 1)];
+        panelDirty = true;
     });
     gui.setup("panel", "settings.xml", 0, 0);
-    for (auto& parameter : mosaicMaker.parameters) {
-        if (parameter->type() == typeid(ofParameter<int>).name()) {
-            gui.add(parameter->cast<int>());
-        } else if (parameter->type() == typeid(ofParameter<bool>).name()) {
-            gui.add(parameter->cast<bool>());
-        } else {
-            ofLogWarning("ofApp") << "no control for parameter " << parameter->getName();
-        }
-        if (parameter->isReferenceTo(mosaicMaker.vertexMode)) {
-            gui.add(vertexModeLabel.setup(vertexModeName));
-        }
-    }
     gui.setTextColor(ofColor(255,255,255));
-    gui.loadFromFile("settings.xml");
+    settingsListeners.push(gui.savePressedE.newListener(this, &ofApp::saveSettings));
+    settingsListeners.push(gui.loadPressedE.newListener(this, &ofApp::loadSettings));
+    loadSettings();
+    rebuildPanel();
     if (!stillInput.empty()) {
         ofExit(renderStill() ? 0 : 1);
         return;
@@ -63,6 +54,9 @@ void ofApp::update(){
     if (!stillInput.empty()) {
         return;
     }
+    if (panelDirty) {
+        rebuildPanel();
+    }
 #ifdef LIVE_INPUT
     cam.update();
     if (cam.isFrameNew()) {
@@ -80,6 +74,48 @@ void ofApp::update(){
 }
 
 //--------------------------------------------------------------
+// `vertex mode` and its name first, then the active mode's parameters.
+void ofApp::rebuildPanel(){
+    panelDirty = false;
+    gui.clear();
+    for (auto& parameter : mosaicMaker.parametersFor(mosaicMaker.vertexMode)) {
+        if (parameter->type() == typeid(ofParameter<int>).name()) {
+            gui.add(parameter->cast<int>());
+        } else if (parameter->type() == typeid(ofParameter<bool>).name()) {
+            gui.add(parameter->cast<bool>());
+        } else {
+            ofLogWarning("ofApp") << "no control for parameter " << parameter->getName();
+        }
+        if (parameter->isReferenceTo(mosaicMaker.vertexMode)) {
+            gui.add(vertexModeLabel.setup(vertexModeName));
+        }
+    }
+}
+
+//--------------------------------------------------------------
+// Returning true stops the panel's own save, which would only write the
+// parameters it shows.
+bool ofApp::saveSettings(){
+    ofXml xml;
+    ofSerialize(xml, mosaicMaker.parameters);
+    if (!xml.save("settings.xml")) {
+        ofLogError("ofApp") << "could not save settings.xml";
+    }
+    return true;
+}
+
+//--------------------------------------------------------------
+bool ofApp::loadSettings(){
+    ofXml xml;
+    if (xml.load("settings.xml")) {
+        ofDeserialize(xml, mosaicMaker.parameters);
+    } else {
+        ofLogWarning("ofApp") << "could not load settings.xml, using the defaults";
+    }
+    return true;
+}
+
+//--------------------------------------------------------------
 // Mosaic of one image with the parameters from settings.xml (the defaults
 // for those it lacks) and the vertex mode from --mode, if given, drawn at the
 // image's own size and saved.
@@ -89,14 +125,9 @@ bool ofApp::renderStill(){
         ofLogError("ofApp") << "could not load image " << stillInput;
         return false;
     }
-    // Read the settings here rather than rely on the panel having loaded them.
-    ofXml settings;
-    if (settings.load("settings.xml")) {
-        ofXml panel = settings.getChild("panel");
-        for (auto& parameter : mosaicMaker.parameters) {
-            ofDeserialize(panel, *parameter);
-        }
-    }
+    // setup() has loaded them already; read them again so that this does
+    // not depend on the order of calls there.
+    loadSettings();
     if (stillMode) {
         mosaicMaker.vertexMode = *stillMode;
     }
