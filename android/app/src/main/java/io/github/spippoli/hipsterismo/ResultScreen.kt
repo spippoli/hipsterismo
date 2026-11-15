@@ -1,6 +1,8 @@
 package io.github.spippoli.hipsterismo
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -21,6 +23,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
@@ -28,8 +38,11 @@ import androidx.compose.ui.unit.dp
  * screen without cropping, under a top bar with back, the `min patch area` it
  * was made with and the overlay toggle; Scarta, Condividi and Salva below it
  * in portrait, in a column on the right in landscape. Scarta (and back) go
- * back to the camera without asking. Condividi and Salva come with #66 and do
- * nothing yet. [onFirstDraw] runs once, after the Mosaic's first draw.
+ * back to the camera without asking. Once [saved], Salva is a disabled
+ * "Salvato" (#58). While [busy] (a PNG being made) Condividi and Salva ignore
+ * taps. With [snackbar] the mock's snackbar "Salvato in Immagini/Hipsterismo"
+ * shows at the bottom, its Apri calling [onOpen]. [onFirstDraw] runs once,
+ * after the Mosaic's first draw.
  */
 @Composable
 fun ResultScreen(
@@ -39,6 +52,12 @@ fun ResultScreen(
     onOverlay: () -> Unit,
     onDiscard: () -> Unit,
     onFirstDraw: () -> Unit,
+    saved: Boolean = false,
+    busy: Boolean = false,
+    onShare: () -> Unit = {},
+    onSave: () -> Unit = {},
+    snackbar: Boolean = false,
+    onOpen: () -> Unit = {},
 ) {
     val drawnOnce = remember(mosaic) { booleanArrayOf(false) }
     val onDrawn = { _: Mosaic ->
@@ -49,8 +68,12 @@ fun ResultScreen(
     }
     val actions = @Composable { modifier: Modifier ->
         ActionButton(stringResource(R.string.discard), Glyph.DELETE, onDiscard, modifier)
-        ActionButton(stringResource(R.string.share), Glyph.SHARE, {}, modifier)
-        ActionButton(stringResource(R.string.save), Glyph.DOWNLOAD, {}, modifier, filled = true)
+        ActionButton(stringResource(R.string.share), Glyph.SHARE, { if (!busy) onShare() }, modifier)
+        if (saved) {
+            ActionButton(stringResource(R.string.saved), Glyph.CHECK, {}, modifier, filled = true, enabled = false)
+        } else {
+            ActionButton(stringResource(R.string.save), Glyph.DOWNLOAD, { if (!busy) onSave() }, modifier, filled = true)
+        }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(PanelDark).windowInsetsPadding(WindowInsets.safeDrawing)) {
@@ -86,5 +109,42 @@ fun ResultScreen(
                 ) { actions(Modifier) }
             }
         }
+        if (snackbar) {
+            Snackbar(
+                stringResource(R.string.saved_in), stringResource(R.string.open), onOpen,
+                Modifier.align(Alignment.BottomCenter)
+                    .padding(bottom = 18.dp)
+                    .then(if (landscape) Modifier.fillMaxWidth(0.5f) else Modifier.fillMaxWidth().padding(horizontal = 12.dp)),
+            )
+        }
+    }
+}
+
+/**
+ * The mock's `.toast`: [text] on a dark grey card with rounded corners, and
+ * [action] in light blue at its end. Full width less 12 dp each side in
+ * portrait, the middle half in landscape.
+ */
+@Composable
+fun Snackbar(text: String, action: String, onAction: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = RoundedCornerShape(6.dp)
+    Row(
+        modifier
+            .shadow(6.dp, shape)
+            .background(Color(0xFF313033), shape)
+            .semantics { liveRegion = LiveRegionMode.Polite }
+            .padding(start = 14.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        BasicText(text, Modifier.weight(1f).padding(vertical = 12.dp), style = labelStyle(12.5f, Color(0xFFF4EFF4)))
+        BasicText(
+            action,
+            Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .clickable(role = Role.Button) { onAction() }
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            style = labelStyle(12.5f, Color(0xFF9AD1FF)).copy(fontWeight = FontWeight.Medium),
+        )
     }
 }

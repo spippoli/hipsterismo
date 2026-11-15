@@ -276,7 +276,7 @@ fun LiveChip(text: String, live: Boolean, onTap: () -> Unit, modifier: Modifier 
 }
 
 /** The result screen's glyphs, drawn on a 24-unit grid like the mock's Material Symbols. */
-enum class Glyph { BACK, DELETE, SHARE, DOWNLOAD }
+enum class Glyph { BACK, DELETE, SHARE, DOWNLOAD, CHECK }
 
 @Composable
 fun GlyphIcon(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
@@ -310,6 +310,7 @@ fun GlyphIcon(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
                 poly(7f, 10f, 12f, 15f, 17f, 10f)
                 poly(4.5f, 15.5f, 4.5f, 20f, 19.5f, 20f, 19.5f, 15.5f)
             }
+            Glyph.CHECK -> poly(4.5f, 12.5f, 9.5f, 17.5f, 19.5f, 7f)
         }
     }
 }
@@ -329,18 +330,27 @@ fun IconButton(glyph: Glyph, label: String, onClick: () -> Unit, modifier: Modif
 
 /**
  * One of the result screen's actions, a pill 40 dp high: outlined in the
- * text colour, or [filled] white with dark text (Salva).
+ * text colour, or [filled] white with dark text (Salva). Unless [enabled] it is
+ * dimmed like the mock's disabled buttons and ignores taps ("Salvato").
  */
 @Composable
-fun ActionButton(text: String, glyph: Glyph, onClick: () -> Unit, modifier: Modifier = Modifier, filled: Boolean = false) {
+fun ActionButton(
+    text: String,
+    glyph: Glyph,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    filled: Boolean = false,
+    enabled: Boolean = true,
+) {
     val content = if (filled) Color(0xFF111111) else OnDark
     val shape = RoundedCornerShape(50)
     Row(
         modifier
             .height(40.dp)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(shape)
             .then(if (filled) Modifier.background(Color.White, shape) else Modifier.border(1.dp, OnDark, shape))
-            .clickable(role = Role.Button) { onClick() }
+            .clickable(enabled = enabled, role = Role.Button) { onClick() }
             .padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
