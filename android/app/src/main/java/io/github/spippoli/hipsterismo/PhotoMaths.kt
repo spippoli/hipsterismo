@@ -27,6 +27,25 @@ fun cappedSize(width: Int, height: Int, cap: Int = PHOTO_CAP): PixelSize {
     return PixelSize(scaled(width), scaled(height))
 }
 
+/**
+ * The shutter's target rotation (a `Surface.ROTATION_*` value: 0, 1, 2 or 3)
+ * for the device held at [degrees], the clockwise angle that
+ * `OrientationEventListener` reports (0 upright, 90 turned right). It follows
+ * the phone, not the display, so a photo taken in landscape is a landscape
+ * photo even with auto-rotate off, as in the system camera. Each turn covers
+ * the 90° around it; null for an unknown angle (the phone lying flat), when
+ * the last rotation stays.
+ */
+fun captureRotationFor(degrees: Int): Int? {
+    if (degrees < 0) return null
+    return when (degrees % 360) {
+        in 45 until 135 -> 3 // Surface.ROTATION_270
+        in 135 until 225 -> 2 // Surface.ROTATION_180
+        in 225 until 315 -> 1 // Surface.ROTATION_90
+        else -> 0 // Surface.ROTATION_0
+    }
+}
+
 /** Where a photo came from: the shutter or the system photo picker. */
 enum class PhotoSource(val label: String) { CAMERA("camera"), GALLERY("gallery") }
 

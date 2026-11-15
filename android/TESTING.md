@@ -32,6 +32,7 @@ Watch the photo times with `adb logcat -s hipsterismo-photo:I`. Each photo logs 
 
 - [ ] **Shutter (processing state):** tap the shutter. The last preview Mosaic freezes and dims, the chip reads "in pausa" with an amber dot, a blue ring spins on the shutter, and the slider, gallery and overlay buttons are dimmed and ignore taps (a second shutter tap too). The system back gesture does nothing. The result screen follows.
 - [ ] **Upright:** take one photo holding the phone in portrait and one in each landscape turn. Each shows upright on the result screen, in the same orientation as the preview.
+- [ ] **Upright with auto-rotate off:** with "Rotazione automatica" off, the screen stays in portrait. A photo taken holding the phone in either landscape turn is still a landscape photo (`2048x1536` in its `photo camera` line) and shows upright, turned on the portrait screen; a portrait photo is `1536x2048`.
 - [ ] **Gallery:** the thumbnail opens the system photo picker, and no permission is asked. Cancelling it goes back to the live preview. Picking an image shows the same processing state, then its Mosaic, and logs a `photo gallery` line.
 - [ ] **Gallery, EXIF rotation:** pick a portrait photo taken with the camera app (stored sideways with an EXIF Orientation). Its Mosaic shows upright.
 - [ ] **Gallery, small image:** pick an image smaller than 2048 px on the long side, such as a screenshot. Its `photo gallery` line keeps its size.
