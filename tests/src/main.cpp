@@ -3,6 +3,7 @@
 #include "ofxUnitTests.h"
 #include "Mosaic.h"
 #include "Adaptive.h"
+#include "AdaptiveLab.h"
 #include "CommandLine.h"
 
 #include <algorithm>
@@ -422,6 +423,8 @@ class ofApp : public ofxUnitTestsApp {
         testAdaptivePixelFormats();
         testAdaptiveGolden();
         testAdaptiveSizes();
+        testAdaptiveLabMatchesOpenCV();
+        testAdaptiveKernelMatchesOpenCV();
         testAdaptiveScalesWithFrame();
         testAdaptivePatchesAreWhole();
         testDelaunayKeepsFlatBorderTriangles();
@@ -1211,6 +1214,46 @@ class ofApp : public ofxUnitTestsApp {
         ofLogNotice("adaptive golden") << mosaic.tessels.size() << " Tessels, " << patchCount(mosaic)
                                        << " Patches, hash 0x" << ofToHex(hash);
         ofxTestEq(hash, uint64_t(0xe0d145733a499498ull), "adaptive Mosaic of fingers.png matches the golden hash");
+    }
+
+    // The core's Lab is OpenCV's float conversion, bit for bit, on every
+    // 8-bit colour (about a second).
+    void testAdaptiveLabMatchesOpenCV() {
+        cv::Mat all(4096, 4096, CV_8UC3), unit, lab;
+        for (int i = 0; i < 1 << 24; i++) {
+            all.at<cv::Vec3b>(i >> 12, i & 4095) = cv::Vec3b(i >> 16, (i >> 8) & 255, i & 255);
+        }
+        all.convertTo(unit, CV_32F, 1.0 / 255);
+        cv::cvtColor(unit, lab, cv::COLOR_RGB2Lab);
+        int mismatches = 0;
+        for (int i = 0; i < 1 << 24; i++) {
+            const std::array<float, 3> mine = mosaic::core::labOf(i >> 16, (i >> 8) & 255, i & 255);
+            if (std::memcmp(mine.data(), &lab.at<cv::Vec3f>(i >> 12, i & 4095)[0], sizeof mine) != 0) {
+                if (mismatches++ < 3) ofLogError("lab") << "colour 0x" << ofToHex(i).substr(2) << " differs";
+            }
+        }
+        ofxTestEq(mismatches, 0, "lab: the core's Lab is cv::cvtColor's on all 2^24 colours");
+    }
+
+    // The core's Gaussian kernel is cv::getGaussianKernel's, bit for bit, at
+    // the σ of every Frame size up to 4096 px (4:3, 16:9 and square), and its
+    // tap count is cv::GaussianBlur's.
+    void testAdaptiveKernelMatchesOpenCV() {
+        int mismatches = 0, kernels = 0;
+        for (int w = 1; w <= 4096; w++) {
+            for (int h : {w, w * 3 / 4, w * 9 / 16}) {
+                if (h < 1) continue;
+                const double sigma = adaptive::sizesFor(w, h, 32).blurSigma;
+                const int taps = mosaic::core::gaussianTaps(sigma);
+                const cv::Mat reference = cv::getGaussianKernel(cvRound(sigma * 4 * 2 + 1) | 1, sigma, CV_32F);
+                const std::vector<float> mine = mosaic::core::gaussianKernel(taps, sigma);
+                kernels++;
+                if (taps != reference.rows || std::memcmp(mine.data(), reference.ptr<float>(), taps * sizeof(float))) {
+                    if (mismatches++ < 3) ofLogError("kernel") << w << "x" << h << ": sigma " << sigma << " differs";
+                }
+            }
+        }
+        ofxTestEq(mismatches, 0, "kernel: the core's Gaussian kernel is OpenCV's for " + ofToString(kernels) + " sigmas");
     }
 
     // The size constants are referred to 320x240: min patch area scales

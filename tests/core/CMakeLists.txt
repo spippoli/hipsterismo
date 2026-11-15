@@ -1,6 +1,6 @@
 # Tests of the openFrameworks-free adaptive core, with plain CMake and no
-# openFrameworks: the core (src/mosaic/core/) and the vendored CDT, linked
-# against OpenCV core+imgproc, plus zlib for the PNG fixtures.
+# openFrameworks or OpenCV: the core (src/mosaic/core/) and the vendored CDT,
+# plus zlib for the PNG fixtures.
 #
 #   cmake -S tests/core -B tests/core/build && cmake --build tests/core/build -j
 #   tests/core/build/core_tests
@@ -21,15 +21,13 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(REPO ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 set(CORE ${REPO}/src/mosaic/core)
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc)
 find_package(ZLIB REQUIRED)
 
-# The core, with only its own folder and CDT on the include path: an
-# openFrameworks (or glm) include would fail to compile here.
-add_library(adaptive_core STATIC ${CORE}/AdaptiveCore.cpp)
+# The core, with only its own folder and CDT on the include path and no
+# library: an openFrameworks, glm or OpenCV include would fail to compile.
+add_library(adaptive_core STATIC ${CORE}/AdaptiveCore.cpp ${CORE}/AdaptiveLab.cpp)
 target_include_directories(adaptive_core PUBLIC ${CORE})
-target_include_directories(adaptive_core SYSTEM PRIVATE ${REPO}/src/mosaic/CDT ${OpenCV_INCLUDE_DIRS})
-target_link_libraries(adaptive_core PUBLIC opencv_core opencv_imgproc)
+target_include_directories(adaptive_core SYSTEM PRIVATE ${REPO}/src/mosaic/CDT)
 # No fused multiply-adds: clang contracts a*b+c by default where the target
 # has FMA (arm64), which would change the floats and the hashes.
 target_compile_options(adaptive_core PRIVATE -Wall -Wextra -ffp-contract=off)

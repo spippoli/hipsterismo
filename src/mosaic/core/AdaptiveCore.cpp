@@ -8,8 +8,7 @@
 #include <queue>
 #include <unordered_map>
 
-#include <opencv2/core.hpp>
-#include <opencv2/imgproc.hpp>
+#include "AdaptiveLab.h"
 #include "CDT.h"
 
 namespace mosaic::core {
@@ -114,13 +113,13 @@ struct LabFrame {
     const float* at(int i) const { return &values[size_t(i) * 3]; }
 };
 
+// The Frame in Lab (exactly OpenCV's float conversion, see labOf()),
+// blurred with σ by gaussianBlur(), whose fused multiply-adds give the same
+// floats on every platform.
 LabFrame blurredLab(const RgbImage& rgb, float sigma) {
-    cv::Mat source(rgb.height, rgb.width, CV_8UC3, const_cast<uint8_t*>(rgb.data), size_t(rgb.stride)), unit, lab;
-    source.convertTo(unit, CV_32F, 1.0 / 255);
-    cv::cvtColor(unit, lab, cv::COLOR_RGB2Lab);
-    cv::GaussianBlur(lab, lab, cv::Size(0, 0), sigma);
-    LabFrame frame{rgb.width, rgb.height, {}};
-    frame.values.assign(lab.ptr<float>(), lab.ptr<float>() + size_t(rgb.width) * rgb.height * 3);
+    LabFrame frame{rgb.width, rgb.height, std::vector<float>(size_t(rgb.width) * rgb.height * 3)};
+    labFrame(rgb.data, rgb.width, rgb.height, rgb.stride, frame.values.data());
+    gaussianBlur(frame.values, rgb.width, rgb.height, double(sigma));
     return frame;
 }
 

@@ -1,10 +1,9 @@
 #pragma once
 
 // The adaptive vertex mode as a plain-C++ core, shared by the desktop app and
-// the Android app. No openFrameworks header and no glm: an RGB buffer goes in
-// and Tessels and Contours come out, in plain types. It still uses OpenCV
-// (core and imgproc) internally, for the Lab conversion and the blur; no
-// OpenCV type appears in this header.
+// the Android app. No openFrameworks, glm or OpenCV and no library: an RGB
+// buffer goes in and Tessels and Contours come out, in plain types. Step 1
+// (Lab and the blur) is in AdaptiveLab.h.
 //
 // On the desktop, MosaicMaker (src/mosaic/Mosaic.cpp) is a thin adapter:
 // ofPixels in, the current Mosaic of glm/ofColor/ofPolyline out, and the log
@@ -89,7 +88,8 @@ Segmentation segment(const RgbImage& frame, int minPatchArea);
 // The Mosaic of an RGB Frame whose Tessels follow its Patches, with the
 // sizes of sizesFor(width, height, minPatchArea):
 //
-// 1. Convert the Frame to Lab and blur it (σ).
+// 1. Convert the Frame to Lab (exactly OpenCV's float conversion) and blur
+//    it (σ) with deterministic fused multiply-adds.
 // 2. Over-segment it with Felzenszwalb–Huttenlocher (segmentationK, min size 1)
 //    on the 8-connected pixel grid. Join neighbouring Patches whose mean
 //    colours in the unblurred Frame are exactly equal (strips the blur alone
