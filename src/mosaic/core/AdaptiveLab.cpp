@@ -139,7 +139,10 @@ int reflect101(int p, int length) {
 // out[j] = the taps in order, s = fma(sources[i][j], kernel[i], s) from
 // s = 0, for j < count. std::fma is correctly rounded, so every version
 // below gives the same floats: a portable loop, and vector versions that
-// keep 8 (AVX2) or 4 (NEON) sums in a register over all the taps.
+// keep 8 (AVX2) or 4 (NEON) sums in a register over all the taps. Each sum is
+// a chain of dependent fused multiply-adds, so the vector versions run
+// several blocks of outputs side by side (8 registers of sums), whose chains
+// are independent: the order of each output's taps stays the same.
 void convolvePlain(float* out, const float* const* sources, const float* kernel, int taps, int from, int count) {
     for (int j = from; j < count; j++) {
         float s = 0;
@@ -148,10 +151,22 @@ void convolvePlain(float* out, const float* const* sources, const float* kernel,
     }
 }
 
+constexpr int convolveBlocks = 8; // registers of sums per pass
+
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 __attribute__((target("avx2,fma"))) void convolveAvx2(float* out, const float* const* sources, const float* kernel,
                                                         int taps, int count) {
     int j = 0;
+    for (; j + 8 * convolveBlocks <= count; j += 8 * convolveBlocks) {
+        __m256 s[convolveBlocks];
+        for (int b = 0; b < convolveBlocks; b++) s[b] = _mm256_setzero_ps();
+        for (int i = 0; i < taps; i++) {
+            const __m256 k = _mm256_set1_ps(kernel[i]);
+            const float* source = sources[i] + j;
+            for (int b = 0; b < convolveBlocks; b++) s[b] = _mm256_fmadd_ps(_mm256_loadu_ps(source + 8 * b), k, s[b]);
+        }
+        for (int b = 0; b < convolveBlocks; b++) _mm256_storeu_ps(out + j + 8 * b, s[b]);
+    }
     for (; j + 8 <= count; j += 8) {
         __m256 s = _mm256_setzero_ps();
         for (int i = 0; i < taps; i++) {
@@ -173,6 +188,16 @@ void convolve(float* out, const float* const* sources, const float* kernel, int 
     }
 #elif defined(__aarch64__)
     int j = 0;
+    for (; j + 4 * convolveBlocks <= count; j += 4 * convolveBlocks) {
+        float32x4_t s[convolveBlocks];
+        for (int b = 0; b < convolveBlocks; b++) s[b] = vdupq_n_f32(0);
+        for (int i = 0; i < taps; i++) {
+            const float k = kernel[i];
+            const float* source = sources[i] + j;
+            for (int b = 0; b < convolveBlocks; b++) s[b] = vfmaq_n_f32(s[b], vld1q_f32(source + 4 * b), k);
+        }
+        for (int b = 0; b < convolveBlocks; b++) vst1q_f32(out + j + 4 * b, s[b]);
+    }
     for (; j + 4 <= count; j += 4) {
         float32x4_t s = vdupq_n_f32(0);
         for (int i = 0; i < taps; i++) s = vfmaq_n_f32(s, vld1q_f32(sources[i] + j), kernel[i]);
@@ -289,10 +314,18 @@ void gaussianBlur(std::vector<float>& values, int width, int height, double sigm
         }
         convolve(&rows[size_t(y) * rowFloats], sources.data(), kernel.data(), taps, rowFloats);
     }
-    // Columns: tap i is the reflected row y + i - radius.
-    for (int y = 0; y < height; y++) {
-        for (int i = 0; i < taps; i++) sources[i] = &rows[size_t(reflect101(y + i - radius, height)) * rowFloats];
-        convolve(&values[size_t(y) * rowFloats], sources.data(), kernel.data(), taps, rowFloats);
+    // Columns: tap i is the reflected row y + i - radius. In strips of 256
+    // floats, so the taps' rows of a strip stay in the cache from one output
+    // row to the next (43 taps at 2048 px would otherwise read 1 MB per row).
+    const int strip = 256;
+    for (int from = 0; from < rowFloats; from += strip) {
+        const int count = std::min(strip, rowFloats - from);
+        for (int y = 0; y < height; y++) {
+            for (int i = 0; i < taps; i++) {
+                sources[i] = &rows[size_t(reflect101(y + i - radius, height)) * rowFloats + from];
+            }
+            convolve(&values[size_t(y) * rowFloats + from], sources.data(), kernel.data(), taps, count);
+        }
     }
 }
 
