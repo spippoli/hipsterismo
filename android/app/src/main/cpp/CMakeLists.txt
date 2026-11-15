@@ -14,5 +14,6 @@ add_subdirectory(${REPO}/src/mosaic/core core)
 target_compile_options(adaptive_core PRIVATE -O3)
 
 add_library(hipsterismo SHARED mosaic_jni.cpp)
-target_compile_options(hipsterismo PRIVATE -Wall -Wextra)
+# The glue copies every pixel of every preview Frame: optimise it like the core.
+target_compile_options(hipsterismo PRIVATE -Wall -Wextra -O3)
 target_link_libraries(hipsterismo PRIVATE adaptive_core jnigraphics log)
