@@ -170,12 +170,39 @@ int joinEqualColours(const ofPixels& rgb, std::vector<int>& label, int count) {
     return relabel(label, sets, count);
 }
 
+// ------------------------------------------------- 4-connected pieces
+
+// Splits every Patch into its 4-connected pieces, each a Patch of its own.
+// The segmentation links diagonal neighbours, so a Patch can be pieces that
+// touch only at a pixel corner. The boundaries are traced along pixel sides,
+// where each piece is on its own, so a small piece would get its own
+// boundary and Tessels (#45). Relabels in scan order and returns the count.
+int splitIntoPieces(std::vector<int>& label, int w, int h) {
+    DisjointSets pieces(w * h);
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const int i = y * w + x;
+            auto join = [&](int j) {
+                if (label[i] != label[j]) return;
+                int a = pieces.find(i), b = pieces.find(j);
+                if (a != b) pieces.unite(a, b);
+            };
+            if (x + 1 < w) join(i + 1);
+            if (y + 1 < h) join(i + w);
+        }
+    }
+    std::iota(label.begin(), label.end(), 0);
+    return relabel(label, pieces, w * h);
+}
+
 // ------------------------------------------------------- Ward merging
 
 // Merges 4-neighbouring Patches, cheapest Ward cost n1 n2 / (n1 + n2) |μ1 - μ2|²
-// first, until no Patch has fewer than `minArea` pixels. Relabels in place,
-// 0..count-1 in scan order.
-void wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minArea) {
+// first, until no Patch has fewer than `minArea` pixels. With `onlySmall`,
+// only merges that involve a Patch under `minArea` count: the small ones are
+// absorbed into a neighbour and the others stay as they are. Relabels in
+// place, 0..count-1 in scan order.
+void wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minArea, bool onlySmall) {
     const int w = lab.cols, h = lab.rows;
     std::vector<double> n(count, 0);
     std::vector<cv::Vec3d> sum(count, cv::Vec3d(0, 0, 0));
@@ -225,6 +252,7 @@ void wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minAr
             || version[c.b] != c.versionB) {
             continue;
         }
+        if (onlySmall && n[c.a] >= minArea && n[c.b] >= minArea) continue;
         small -= (n[c.a] < minArea) + (n[c.b] < minArea);
         int root = sets.unite(c.a, c.b), other = root == c.a ? c.b : c.a;
         n[root] += n[other];
@@ -658,7 +686,11 @@ Mosaic make(const ofPixels& rgb, int minPatchArea) {
     int count = 0;
     std::vector<int> label = felzenszwalb(lab, count);
     count = joinEqualColours(rgb, label, count);
-    wardMerge(lab, label, count, sizes.minPatchArea);
+    wardMerge(lab, label, count, sizes.minPatchArea, false);
+    // Ward merging may still leave a Patch in pieces that touch only at a
+    // corner; absorbing just the small pieces keeps the rest of the Patches.
+    count = splitIntoPieces(label, w, h);
+    wardMerge(lab, label, count, sizes.minPatchArea, true);
 
     std::vector<Chain> exact = traceChains(label, w, h);
     for (Chain& chain : exact) mergeCollinear(chain);

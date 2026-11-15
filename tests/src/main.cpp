@@ -1263,27 +1263,20 @@ class ofApp : public ofxUnitTestsApp {
         strip.crop(0, 60, 320, 120);
         const std::vector<std::pair<std::string, ofPixels>> frames = {{"fingers.png", scene},
                                                                       {"fingers.png 320x120", strip}};
-        // Regions under half the min patch area (scaled) are not counted:
-        // see patchCount().
-        auto counted = [](const Mosaic& mosaic, const ofPixels& frame) {
-            const int w = frame.getWidth(), h = frame.getHeight();
-            return patchCount(mosaic, adaptive::sizesFor(w, h, 32).minPatchArea / 2.0);
-        };
         for (const auto& [name, frame] : frames) {
             Mosaic small = AdaptiveMaker().make(frame);
-            const int reference = counted(small, frame);
+            const int reference = patchCount(small);
             ofPixels big = scaled(frame, 4);
             uint64_t start = ofGetElapsedTimeMicros();
             Mosaic mosaic = AdaptiveMaker().make(big);
             const double ms = (ofGetElapsedTimeMicros() - start) / 1000.0;
-            const int patches = counted(mosaic, big);
-            ofLogNotice("adaptive") << name << ": " << reference << " Patches (" << patchCount(small)
-                                    << " regions), " << small.tessels.size() << " Tessels at " << frame.getWidth()
-                                    << "x" << frame.getHeight() << "; " << patches << " Patches ("
-                                    << patchCount(mosaic) << " regions), " << mosaic.tessels.size()
-                                    << " Tessels at " << big.getWidth() << "x" << big.getHeight() << " in "
-                                    << ofToString(ms, 0) << " ms";
-            // Measured: +21% on fingers.png and +33% on the strip (the
+            const int patches = patchCount(mosaic);
+            ofLogNotice("adaptive") << name << ": " << reference << " Patches, " << small.tessels.size()
+                                    << " Tessels at " << frame.getWidth() << "x" << frame.getHeight() << "; "
+                                    << patches << " Patches, " << mosaic.tessels.size() << " Tessels at "
+                                    << big.getWidth() << "x" << big.getHeight() << " in " << ofToString(ms, 0)
+                                    << " ms";
+            // Measured: +24% on fingers.png and +32% on the strip (the
             // upscaled Frame is smoother, and FH's k is not scaled); with
             // the absolute constants it was about 10x.
             ofxTest(std::abs(patches - reference) <= reference * 2 / 5,
