@@ -261,6 +261,54 @@ bool properlyCross(glm::dvec2 a, glm::dvec2 b, glm::dvec2 c, glm::dvec2 d) {
     return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
 }
 
+// How many (Tessel edge, Contour segment) pairs properly cross.
+int contourCrossings(const Mosaic& mosaic) {
+    int crossings = 0;
+    for (const Tessel& tessel : mosaic.tessels) {
+        for (int e = 0; e < 3; e++) {
+            glm::dvec2 a(tessel.triangle[e]), b(tessel.triangle[(e + 1) % 3]);
+            for (const ofPolyline& contour : mosaic.contours) {
+                for (auto [c, d] : segments(contour)) crossings += properlyCross(a, b, c, d);
+            }
+        }
+    }
+    return crossings;
+}
+
+// `top` above the line from (0, 30) to (160, 90), `bottom` below it: a
+// slanted Patch boundary, which the pixels turn into a staircase.
+ofPixels slantedFrame(const ofColor& top, const ofColor& bottom) {
+    ofPixels frame = solidFrame(160, 120, top);
+    for (int y = 0; y < 120; y++) {
+        for (int x = 0; x < 160; x++) {
+            if (8 * (2 * y + 1) > 3 * (2 * x + 1) + 480) frame.setColor(x, y, bottom);
+        }
+    }
+    return frame;
+}
+
+// Once installed, counts the warnings and errors the Mosaic module logs (the
+// constrained triangulation's fallback logs one), and passes every message on
+// to the previous logger channel.
+class MosaicWarnings : public ofBaseLoggerChannel {
+public:
+    static std::shared_ptr<MosaicWarnings> install() {
+        auto channel = std::make_shared<MosaicWarnings>();
+        channel->previous = ofGetLoggerChannel();
+        ofSetLoggerChannel(channel);
+        return channel;
+    }
+    void uninstall() { ofSetLoggerChannel(previous); }
+    void log(ofLogLevel level, const std::string& module, const std::string& message) override {
+        if (module == "Mosaic" && level >= OF_LOG_WARNING) count++;
+        if (previous) previous->log(level, module, message);
+    }
+    int count = 0;
+
+private:
+    std::shared_ptr<ofBaseLoggerChannel> previous;
+};
+
 } // namespace
 
 class ofApp : public ofxUnitTestsApp {
@@ -287,6 +335,8 @@ class ofApp : public ofxUnitTestsApp {
         testAdaptiveMinPatchArea();
         testAdaptiveNoBorderContour();
         testAdaptiveTesselsDoNotCrossContours();
+        testAdaptiveSimplifiesBoundaries();
+        testAdaptiveCrossingRepairRegressions();
         testAdaptiveDeterminism();
         testAdaptivePixelFormats();
         testDelaunayKeepsFlatBorderTriangles();
@@ -736,6 +786,9 @@ class ofApp : public ofxUnitTestsApp {
         frames.push_back({"near border", nearBorder});
         ofPixels scene = loadFixture("fingers.png");
         if (scene.isAllocated()) frames.push_back({"fingers.png", scene});
+        ofPixels frame60 = loadFixture("fingers-060.png");
+        if (frame60.isAllocated()) frames.push_back({"fingers-060.png", frame60});
+        frames.push_back({"slanted", slantedFrame(background, foreground)});
         return frames;
     }
 
@@ -830,16 +883,47 @@ class ofApp : public ofxUnitTestsApp {
         if (!scene.isAllocated()) return;
         Mosaic mosaic = AdaptiveMaker().make(scene);
         ofxTest(!mosaic.contours.empty(), "adaptive: fingers.png has Contours");
-        int crossings = 0;
-        for (const Tessel& tessel : mosaic.tessels) {
-            for (int e = 0; e < 3; e++) {
-                glm::dvec2 a(tessel.triangle[e]), b(tessel.triangle[(e + 1) % 3]);
-                for (const ofPolyline& contour : mosaic.contours) {
-                    for (auto [c, d] : segments(contour)) crossings += properlyCross(a, b, c, d);
-                }
-            }
+        ofxTestEq(contourCrossings(mosaic), 0, "adaptive: no Tessel edge crosses a Contour on fingers.png");
+    }
+
+    void testAdaptiveSimplifiesBoundaries() {
+        Mosaic mosaic = AdaptiveMaker().make(slantedFrame(background, foreground));
+        ofxTestEq(mosaic.contours.size(), size_t(1), "adaptive: a slanted boundary gives one Contour");
+        if (mosaic.contours.size() == 1) {
+            const ofPolyline& contour = mosaic.contours[0];
+            ofLogNotice("adaptive") << "slanted boundary: " << contour.size() << " Contour vertices";
+            ofxTest(!contour.isClosed() && contour.size() >= 2 && contour.size() <= 4,
+                    "adaptive: a slanted staircase boundary is simplified to a few straight segments");
         }
-        ofxTestEq(crossings, 0, "adaptive: no Tessel edge crosses a Contour on fingers.png");
+        ofxTestEq(contourCrossings(mosaic), 0, "adaptive: no Tessel edge crosses the slanted Contour");
+    }
+
+    // Frames of fingers.mov (0-based) where a faulty crossing repair left
+    // conflicting constraints, so CDT threw and make() fell back to an
+    // unconstrained triangulation. Frame 60: the prototypes' repair simplified
+    // closed loops. Frame 3: falling back to an open chain's two ends instead
+    // of its exact corners.
+    void testAdaptiveCrossingRepairRegressions() {
+        for (std::string name : {"fingers-060.png", "fingers-003.png"}) {
+            ofPixels frame = loadFixture(name);
+            ofxTest(frame.isAllocated(), "fixture " + name + " loads");
+            if (!frame.isAllocated()) continue;
+            auto warnings = MosaicWarnings::install();
+            Mosaic mosaic;
+            bool threw = false;
+            try {
+                mosaic = AdaptiveMaker().make(frame);
+            } catch (const std::exception& e) {
+                threw = true;
+                ofLogError("adaptive") << name << ": " << e.what();
+            }
+            warnings->uninstall();
+            ofxTest(!threw, "adaptive: make() does not throw on " + name);
+            ofxTestEq(warnings->count, 0,
+                      "adaptive: " + name + " is triangulated with its Contours as constraints, no fallback");
+            ofxTest(coversFrame(mosaic, frame.getWidth(), frame.getHeight()), "adaptive: Tessels tile " + name);
+            ofxTestEq(contourCrossings(mosaic), 0, "adaptive: no Tessel edge crosses a Contour on " + name);
+        }
     }
 
     void testAdaptiveDeterminism() {

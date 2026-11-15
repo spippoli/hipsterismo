@@ -361,6 +361,188 @@ bool onBorder(const Chain& chain, int w, int h) {
     return (a.x == b.x && (a.x == 0 || a.x == w)) || (a.y == b.y && (a.y == 0 || a.y == h));
 }
 
+// ------------------------------------------------------ simplification
+
+// Marks with Douglas–Peucker the points of p[first..last] to keep at
+// tolerance `epsilon`; p[first] and p[last] are kept by the caller.
+void douglasPeucker(const std::vector<glm::ivec2>& p, size_t first, size_t last, double epsilon,
+                    std::vector<char>& keep) {
+    std::vector<std::pair<size_t, size_t>> spans = {{first, last}};
+    while (!spans.empty()) {
+        auto [i, j] = spans.back();
+        spans.pop_back();
+        if (j <= i + 1) continue;
+        const glm::dvec2 a(p[i]), d = glm::dvec2(p[j]) - a;
+        const double length2 = glm::dot(d, d);
+        double farthest = -1; // squared distance to the line (to `a` if a == b)
+        size_t k = i;
+        for (size_t m = i + 1; m < j; m++) {
+            const glm::dvec2 q = glm::dvec2(p[m]) - a;
+            const double cross = q.x * d.y - q.y * d.x;
+            const double distance2 = length2 == 0 ? glm::dot(q, q) : cross * cross / length2;
+            if (distance2 > farthest) {
+                farthest = distance2;
+                k = m;
+            }
+        }
+        if (farthest <= epsilon * epsilon) continue;
+        keep[k] = 1;
+        spans.push_back({i, k});
+        spans.push_back({k, j});
+    }
+}
+
+// The chain simplified with Douglas–Peucker at `epsilon`, its ends kept. A chain that ends where it starts (a loop, or a chain from a junction
+// back to itself) is split at its point farthest from the start, and keeps at
+// least three distinct points, so it still encloses an area.
+Chain simplify(const Chain& chain, double epsilon) {
+    const std::vector<glm::ivec2>& p = chain.points;
+    const size_t n = p.size();
+    std::vector<char> keep(n, 0);
+    keep[0] = keep[n - 1] = 1;
+    if (p[0] != p[n - 1]) {
+        douglasPeucker(p, 0, n - 1, epsilon, keep);
+    } else {
+        auto distance2 = [](glm::ivec2 a, glm::ivec2 b) {
+            glm::i64vec2 d = glm::i64vec2(b) - glm::i64vec2(a);
+            return d.x * d.x + d.y * d.y;
+        };
+        size_t far = 1;
+        for (size_t k = 1; k + 1 < n; k++) {
+            if (distance2(p[0], p[k]) > distance2(p[0], p[far])) far = k;
+        }
+        keep[far] = 1;
+        douglasPeucker(p, 0, far, epsilon, keep);
+        douglasPeucker(p, far, n - 1, epsilon, keep);
+        if (std::count(keep.begin(), keep.end(), 1) < 4) {
+            // Only the start and `far`: add the point farthest from their line.
+            const glm::i64vec2 a(p[0]), d = glm::i64vec2(p[far]) - a;
+            size_t third = 0;
+            int64_t best = -1;
+            for (size_t k = 1; k + 1 < n; k++) {
+                const glm::i64vec2 q = glm::i64vec2(p[k]) - a;
+                const int64_t area = std::abs(q.x * d.y - q.y * d.x);
+                if (!keep[k] && area > best) {
+                    best = area;
+                    third = k;
+                }
+            }
+            keep[third] = 1;
+        }
+    }
+    Chain simplified;
+    simplified.closed = chain.closed;
+    for (size_t k = 0; k < n; k++) {
+        if (keep[k]) simplified.points.push_back(p[k]);
+    }
+    return simplified;
+}
+
+// Sign of the turn a -> b -> c: 1 left, -1 right, 0 collinear. Exact on the lattice.
+int orientation(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c) {
+    const int64_t v = int64_t(b.x - a.x) * (c.y - a.y) - int64_t(b.y - a.y) * (c.x - a.x);
+    return (v > 0) - (v < 0);
+}
+
+// Whether p lies on the closed segment ab (p collinear with a and b).
+bool onSegment(glm::ivec2 a, glm::ivec2 b, glm::ivec2 p) {
+    return orientation(a, b, p) == 0 && std::min(a.x, b.x) <= p.x && p.x <= std::max(a.x, b.x)
+        && std::min(a.y, b.y) <= p.y && p.y <= std::max(a.y, b.y);
+}
+
+// Whether two constraint segments conflict: they may only meet at a shared
+// end point, without overlapping. A shared end with collinear overlap (two
+// chains collapsed onto one line, or a chain folding back on itself), the
+// same segment twice, a crossing, or a point touching the other segment's
+// inside all conflict.
+bool conflict(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::ivec2 d) {
+    const bool sharesA = a == c || a == d, sharesB = b == c || b == d;
+    if (sharesA && sharesB) return true;
+    if (sharesA || sharesB) {
+        const glm::ivec2 s = sharesA ? a : b, p = sharesA ? b : a, q = s == c ? d : c;
+        const glm::i64vec2 u = glm::i64vec2(p) - glm::i64vec2(s), v = glm::i64vec2(q) - glm::i64vec2(s);
+        return orientation(s, p, q) == 0 && u.x * v.x + u.y * v.y > 0;
+    }
+    if (orientation(a, b, c) * orientation(a, b, d) < 0 && orientation(c, d, a) * orientation(c, d, b) < 0) {
+        return true;
+    }
+    return onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b);
+}
+
+// Every chain simplified once at boundaryEpsilon, so the two Patches either
+// side of it see the same edge, then the crossing repair. Each round, every
+// chain with a segment that conflicts with another segment, of its own or of
+// another chain, is simplified again at half its ε; once ε would drop below
+// half a pixel it falls back to its exact crack chain, keeping every corner,
+// also of a closed loop. The rounds go on until no conflict remains. Exact
+// chains never conflict with each other, so each round with a conflict moves
+// at least one chain a step down its finite ladder of ε, and the loop ends.
+std::vector<Chain> simplifyChains(const std::vector<Chain>& exact, int w, int h) {
+    const size_t count = exact.size();
+    std::vector<Chain> chains(count);
+    std::vector<double> epsilon(count, boundaryEpsilon);
+    std::vector<char> isExact(count), changed(count, 1);
+    // A simplification keeps a subset of the points, so the same count means
+    // the exact chain.
+    auto simplifyAt = [&](size_t i) {
+        chains[i] = simplify(exact[i], epsilon[i]);
+        isExact[i] = chains[i].points.size() == exact[i].points.size();
+    };
+    for (size_t i = 0; i < count; i++) simplifyAt(i);
+
+    // Segments are binned by bounding box into square cells; only pairs that
+    // share a cell and involve a chain changed in the last round are tested.
+    const int cellSize = 16, columns = w / cellSize + 1, rows = h / cellSize + 1;
+    struct Segment {
+        int chain, index;
+    };
+    std::vector<std::vector<Segment>> cells(size_t(columns) * rows);
+    while (true) {
+        for (auto& cell : cells) cell.clear();
+        for (size_t i = 0; i < count; i++) {
+            const std::vector<glm::ivec2>& p = chains[i].points;
+            for (size_t k = 0; k + 1 < p.size(); k++) {
+                const int x0 = std::min(p[k].x, p[k + 1].x) / cellSize, x1 = std::max(p[k].x, p[k + 1].x) / cellSize;
+                const int y0 = std::min(p[k].y, p[k + 1].y) / cellSize, y1 = std::max(p[k].y, p[k + 1].y) / cellSize;
+                for (int y = y0; y <= y1; y++) {
+                    for (int x = x0; x <= x1; x++) cells[size_t(y) * columns + x].push_back({int(i), int(k)});
+                }
+            }
+        }
+        std::vector<char> conflicting(count, 0);
+        for (const auto& cell : cells) {
+            for (size_t u = 0; u < cell.size(); u++) {
+                for (size_t v = u + 1; v < cell.size(); v++) {
+                    const Segment s = cell[u], t = cell[v];
+                    if (!changed[s.chain] && !changed[t.chain]) continue;
+                    if (s.chain == t.chain && s.index == t.index) continue;
+                    const auto &p = chains[s.chain].points, &q = chains[t.chain].points;
+                    if (conflict(p[s.index], p[s.index + 1], q[t.index], q[t.index + 1])) {
+                        conflicting[s.chain] = conflicting[t.chain] = 1;
+                    }
+                }
+            }
+        }
+        bool any = false;
+        for (size_t i = 0; i < count; i++) {
+            changed[i] = conflicting[i] && !isExact[i];
+            if (!changed[i]) continue;
+            epsilon[i] /= 2;
+            if (epsilon[i] >= 0.5) {
+                simplifyAt(i);
+            } else {
+                chains[i] = exact[i];
+                isExact[i] = 1;
+            }
+            any = true;
+        }
+        // No conflict left, or (which exact chains rule out) only conflicts
+        // between exact chains; CDT's fallback would then cover the Frame.
+        if (!any) break;
+    }
+    return chains;
+}
+
 // ------------------------------------------------- triangulation, colour
 
 using Triangles = std::vector<std::array<glm::dvec2, 3>>;
@@ -401,9 +583,9 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
     try {
         return run(true);
     } catch (const std::exception& e) {
-        // Exact crack chains never cross, so this should not happen. The
-        // four Frame corners are vertices, so the unconstrained
-        // triangulation still tiles the Frame.
+        // The crossing repair leaves no conflicting chains, so this should
+        // not happen. The four Frame corners are vertices, so the
+        // unconstrained triangulation still tiles the Frame.
         ofLogWarning("Mosaic") << "constrained triangulation failed (" << e.what()
                                << "), Tessels may cross Patches in this Frame";
         try {
@@ -466,11 +648,13 @@ Mosaic make(const ofPixels& rgb, int minPatchArea) {
     count = joinEqualColours(rgb, label, count);
     wardMerge(lab, label, count, minPatchArea);
 
-    std::vector<Chain> chains = traceChains(label, w, h);
+    std::vector<Chain> exact = traceChains(label, w, h);
+    for (Chain& chain : exact) mergeCollinear(chain);
+    std::vector<Chain> chains = simplifyChains(exact, w, h);
     Mosaic mosaic;
-    for (Chain& chain : chains) {
-        mergeCollinear(chain);
-        if (onBorder(chain, w, h)) continue;
+    for (size_t i = 0; i < chains.size(); i++) {
+        if (onBorder(exact[i], w, h)) continue;
+        const Chain& chain = chains[i];
         ofPolyline contour;
         size_t n = chain.points.size() - (chain.closed ? 1 : 0);
         for (size_t i = 0; i < n; i++) contour.addVertex(chain.points[i].x, chain.points[i].y);
