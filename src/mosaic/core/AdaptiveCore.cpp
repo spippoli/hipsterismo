@@ -292,22 +292,52 @@ int joinEqualColours(const RgbImage& rgb, std::vector<int>& label, int count) {
 // touch only at a pixel corner. The boundaries are traced along pixel sides,
 // where each piece is on its own, so a small piece would get its own
 // boundary and Tessels (#45). Relabels in scan order and returns the count.
+//
+// The pieces are found on runs (a row's stretches of one label): a run joins
+// the runs of the row above that it overlaps with the same label. Runs are in
+// scan order, so numbering the pieces by their first run numbers them by
+// their first pixel, as relabel() would.
 int splitIntoPieces(std::vector<int>& label, int w, int h) {
-    DisjointSets pieces(w * h);
+    struct Run {
+        int x0, x1, label; // pixels x0..x1-1
+    };
+    std::vector<Run> runs;
+    std::vector<int> rowStart(size_t(h) + 1);
     for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            const int i = y * w + x;
-            auto join = [&](int j) {
-                if (label[i] != label[j]) return;
-                int a = pieces.find(i), b = pieces.find(j);
-                if (a != b) pieces.unite(a, b);
-            };
-            if (x + 1 < w) join(i + 1);
-            if (y + 1 < h) join(i + w);
+        rowStart[y] = int(runs.size());
+        const int* row = &label[size_t(y) * w];
+        for (int x = 0; x < w;) {
+            int end = x + 1;
+            while (end < w && row[end] == row[x]) end++;
+            runs.push_back({x, end, row[x]});
+            x = end;
         }
     }
-    std::iota(label.begin(), label.end(), 0);
-    return relabel(label, pieces, w * h);
+    rowStart[h] = int(runs.size());
+    DisjointSets pieces(int(runs.size()));
+    for (int y = 1; y < h; y++) {
+        int k = rowStart[y - 1];
+        for (int r = rowStart[y]; r < rowStart[y + 1]; r++) {
+            const Run& run = runs[r];
+            while (runs[k].x1 <= run.x0) k++;
+            for (int u = k; u < rowStart[y] && runs[u].x0 < run.x1; u++) {
+                if (runs[u].label != run.label) continue;
+                int a = pieces.find(r), b = pieces.find(u);
+                if (a != b) pieces.unite(a, b);
+            }
+        }
+    }
+    std::vector<int> compact(runs.size(), -1);
+    int next = 0;
+    for (int y = 0; y < h; y++) {
+        int* row = &label[size_t(y) * w];
+        for (int r = rowStart[y]; r < rowStart[y + 1]; r++) {
+            const int root = pieces.find(r);
+            if (compact[root] < 0) compact[root] = next++;
+            std::fill(row + runs[r].x0, row + runs[r].x1, compact[root]);
+        }
+    }
+    return next;
 }
 
 // ------------------------------------------------------- Ward merging
