@@ -217,23 +217,38 @@ std::vector<int> felzenszwalb(const LabFrame& lab, int& count) {
     return label;
 }
 
-// The pairs of 4-neighbouring labels, each once, sorted.
-std::vector<std::pair<int, int>> neighbourPairs(const std::vector<int>& label, int w, int h) {
-    std::vector<uint64_t> pairs;
-    auto pair = [&](int a, int b) {
-        if (a != b) pairs.push_back(uint64_t(std::min(a, b)) << 32 | uint32_t(std::max(a, b)));
-    };
+// The pairs of 4-neighbouring labels (labels 0..count-1), each once, sorted.
+// The pairs found along the boundaries are bucketed by their smaller label
+// (a counting sort), a stamp per larger label drops the repeats within a
+// bucket, and each short bucket is sorted.
+std::vector<std::pair<int, int>> neighbourPairs(const std::vector<int>& label, int w, int h, int count) {
+    std::vector<std::pair<int, int>> found;
     for (int y = 0; y < h; y++) {
+        const int* row = &label[size_t(y) * w];
+        const int* below = y + 1 < h ? row + w : nullptr;
         for (int x = 0; x < w; x++) {
-            if (x + 1 < w) pair(label[y * w + x], label[y * w + x + 1]);
-            if (y + 1 < h) pair(label[y * w + x], label[(y + 1) * w + x]);
+            const int a = row[x];
+            if (x + 1 < w && row[x + 1] != a) found.push_back({std::min(a, row[x + 1]), std::max(a, row[x + 1])});
+            if (below && below[x] != a) found.push_back({std::min(a, below[x]), std::max(a, below[x])});
         }
     }
-    std::sort(pairs.begin(), pairs.end());
-    pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+    std::vector<int> start(size_t(count) + 1, 0);
+    for (const auto& pair : found) start[pair.first + 1]++;
+    for (int i = 0; i < count; i++) start[i + 1] += start[i];
+    std::vector<int> his(found.size()), fill(start.begin(), start.end() - 1);
+    for (const auto& pair : found) his[fill[pair.first]++] = pair.second;
+    std::vector<int> stamp(count, -1);
     std::vector<std::pair<int, int>> result;
-    result.reserve(pairs.size());
-    for (uint64_t p : pairs) result.push_back({int(p >> 32), int(p & 0xffffffffu)});
+    for (int lo = 0; lo < count; lo++) {
+        const size_t first = result.size();
+        for (int k = start[lo]; k < start[lo + 1]; k++) {
+            if (stamp[his[k]] != lo) {
+                stamp[his[k]] = lo;
+                result.push_back({lo, his[k]});
+            }
+        }
+        std::sort(result.begin() + first, result.end());
+    }
     return result;
 }
 
@@ -260,7 +275,7 @@ int joinEqualColours(const RgbImage& rgb, std::vector<int>& label, int count) {
     // Equal means are an equivalence, and joining two Patches keeps their
     // mean, so one pass over the original neighbours is enough.
     DisjointSets sets(count);
-    for (auto [a, b] : neighbourPairs(label, w, h)) {
+    for (auto [a, b] : neighbourPairs(label, w, h, count)) {
         const auto &p = sum[a], &q = sum[b];
         bool equal = true;
         for (int c = 0; c < 3; c++) equal = equal && p[c] * q[3] == q[c] * p[3];
@@ -313,7 +328,7 @@ int wardMerge(const LabFrame& lab, std::vector<int>& label, int count, int minAr
     }
 
     std::vector<std::vector<int>> neighbours(count);
-    for (auto [a, b] : neighbourPairs(label, w, h)) {
+    for (auto [a, b] : neighbourPairs(label, w, h, count)) {
         neighbours[a].push_back(b);
         neighbours[b].push_back(a);
     }
