@@ -299,13 +299,11 @@ int contourCrossings(const Mosaic& mosaic) {
     return crossings;
 }
 
-// How many Patches a Mosaic shows: Tessels joined across every shared edge
-// that is not a Contour segment, counted as connected groups of at least
-// `minArea` px². Adaptive's Tessels never cross a Contour and its Contour
-// segments are Tessel edges, so each group is one 4-connected region of a
-// Patch. (A Patch whose pixels only touch at a corner counts once per
-// region; such regions are often a pixel or two, hence `minArea`.)
-int patchCount(const Mosaic& mosaic, double minArea = 0) {
+// The areas of the Patches a Mosaic shows: Tessels joined across every
+// shared edge that is not a Contour segment, as connected groups. Adaptive's
+// Tessels never cross a Contour and its Contour segments are Tessel edges, so
+// each group is one 4-connected piece of a Patch, in px².
+std::vector<double> patchAreas(const Mosaic& mosaic) {
     using Point = std::pair<int, int>;
     using Edge = std::pair<Point, Point>;
     auto point = [](glm::vec2 v) { return Point(int(std::lround(v.x)), int(std::lround(v.y))); };
@@ -335,9 +333,25 @@ int patchCount(const Mosaic& mosaic, double minArea = 0) {
     }
     std::map<int, double> groupArea;
     for (size_t t = 0; t < parent.size(); t++) groupArea[find(int(t))] += area(mosaic.tessels[t]);
+    std::vector<double> areas;
+    for (auto [root, total] : groupArea) areas.push_back(total);
+    return areas;
+}
+
+// How many Patches a Mosaic shows (see patchAreas()) of at least `minArea` px².
+int patchCount(const Mosaic& mosaic, double minArea = 0) {
     int groups = 0;
-    for (auto [root, total] : groupArea) groups += total >= minArea;
+    for (double total : patchAreas(mosaic)) groups += total >= minArea;
     return groups;
+}
+
+// A one-pixel diagonal line of `fg` from (40, 20) to (119, 99) on `bg`: its
+// pixels touch only at their corners, so the segmentation's 8-neighbour graph
+// joins them into one Patch that no 4-neighbour step connects.
+ofPixels diagonalFrame(const ofColor& bg, const ofColor& fg) {
+    ofPixels frame = solidFrame(160, 120, bg);
+    for (int i = 0; i < 80; i++) frame.setColor(40 + i, 20 + i, fg);
+    return frame;
 }
 
 // `top` above the line from (0, 30) to (160, 90), `bottom` below it: a
@@ -409,6 +423,7 @@ class ofApp : public ofxUnitTestsApp {
         testAdaptiveGolden();
         testAdaptiveSizes();
         testAdaptiveScalesWithFrame();
+        testAdaptivePatchesAreWhole();
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
         testDelaunayTilesCocircularClusters();
@@ -1275,6 +1290,36 @@ class ofApp : public ofxUnitTestsApp {
                     "adaptive: " + name + " upscaled x4 gives about as many Patches, within 40%");
             ofxTest(coversFrame(mosaic, big.getWidth(), big.getHeight()), "adaptive: Tessels tile " + name + " x4");
             ofxTestEq(contourCrossings(mosaic), 0, "adaptive: no Tessel edge crosses a Contour on " + name + " x4");
+        }
+    }
+
+    // Every Patch is 4-connected and has at least the scaled min patch area:
+    // no piece of a Patch touches the rest only at a pixel corner (#45). At
+    // the make() seam a piece shows as a group of Tessels walled off by
+    // Contours. The Contours are simplified (by up to ε), so a group can show
+    // less than its Patch's pixels: half the min is the bar. The pieces were
+    // a pixel or two.
+    void testAdaptivePatchesAreWhole() {
+        std::vector<std::pair<std::string, ofPixels>> frames = {
+            {"diagonal line", diagonalFrame(ofColor::white, ofColor::black)},
+        };
+        ofPixels scene = loadFixture("fingers.png");
+        ofxTest(scene.isAllocated(), "fixture fingers.png loads");
+        if (scene.isAllocated()) {
+            frames.push_back({"fingers.png", scene});
+            frames.push_back({"fingers.png x4", scaled(scene, 4)});
+        }
+        for (const auto& [name, frame] : frames) {
+            Mosaic mosaic = AdaptiveMaker().make(frame);
+            const double minArea = adaptive::sizesFor(frame.getWidth(), frame.getHeight(), 32).minPatchArea / 2.0;
+            std::vector<double> areas = patchAreas(mosaic);
+            int below = 0;
+            for (double a : areas) below += a < minArea;
+            ofLogNotice("adaptive") << name << ": " << areas.size() << " Patches, " << below << " under "
+                                    << minArea << " px², the smallest "
+                                    << (areas.empty() ? 0 : *std::min_element(areas.begin(), areas.end()))
+                                    << " px²";
+            ofxTestEq(below, 0, "adaptive: no Patch piece of " + name + " is under half the min patch area");
         }
     }
 };
