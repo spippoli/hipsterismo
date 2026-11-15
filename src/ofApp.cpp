@@ -11,9 +11,28 @@ void ofApp::setup(){
     ofSetVerticalSync(true);
     ofEnableAntiAliasing();
 
-    // The panel's root group must stay named "panel" so settings.xml keeps loading.
-    mosaicMaker.parameters.setName("panel");
-    gui.setup(mosaicMaker.parameters, "settings.xml", 0, 0);
+    // The panel's root group must stay named "panel" so settings.xml keeps
+    // loading. It holds the Mosaic parameters in their order, with the name
+    // of the active vertex mode right after `vertex mode`; that label is not
+    // saved.
+    vertexModeName.set("mode", vertexModeNames[mosaicMaker.vertexMode]);
+    vertexModeName.setSerializable(false);
+    vertexModeListener = mosaicMaker.vertexMode.newListener([this](int& mode) {
+        vertexModeName = vertexModeNames[ofClamp(mode, 0, VERTEX_MODE_COUNT - 1)];
+    });
+    gui.setup("panel", "settings.xml", 0, 0);
+    for (auto& parameter : mosaicMaker.parameters) {
+        if (parameter->type() == typeid(ofParameter<int>).name()) {
+            gui.add(parameter->cast<int>());
+        } else if (parameter->type() == typeid(ofParameter<bool>).name()) {
+            gui.add(parameter->cast<bool>());
+        } else {
+            ofLogWarning("ofApp") << "no control for parameter " << parameter->getName();
+        }
+        if (parameter->isReferenceTo(mosaicMaker.vertexMode)) {
+            gui.add(vertexModeLabel.setup(vertexModeName));
+        }
+    }
     gui.setTextColor(ofColor(255,255,255));
     gui.loadFromFile("settings.xml");
     if (!stillInput.empty()) {
@@ -69,7 +88,7 @@ bool ofApp::renderStill(){
         ofLogError("ofApp") << "could not load image " << stillInput;
         return false;
     }
-    mosaicMaker.stableVertices = false;
+    mosaicMaker.vertexMode = VERTEX_MODE_SPLINE;
     ofMesh stillMesh = toMesh(mosaicMaker.make(image));
 
     ofFbo fbo;
@@ -173,9 +192,9 @@ void ofApp::keyPressed(int key){
             break;
         case 's':
         {
-            // Switch between stable (cell-based) and spline vertex selection.
-            mosaicMaker.stableVertices = !mosaicMaker.stableVertices;
-            ofLogNotice("ofApp") << "vertices: " << (mosaicMaker.stableVertices ? "stable" : "spline");
+            // Cycle through the vertex modes, wrapping after the last.
+            mosaicMaker.vertexMode = nextVertexMode(mosaicMaker.vertexMode);
+            ofLogNotice("ofApp") << "vertex mode: " << vertexModeNames[mosaicMaker.vertexMode];
         }
             break;
         case 'p':

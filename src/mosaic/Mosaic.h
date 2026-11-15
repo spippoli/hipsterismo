@@ -34,14 +34,29 @@ struct Mosaic {
 // Flat-coloured triangle mesh of the Mosaic, ready to draw in Frame space.
 ofMesh toMesh(const Mosaic& mosaic);
 
+// The ways of choosing a Mosaic's vertices, as values of `vertex mode`.
+enum VertexMode : int {
+    VERTEX_MODE_SPLINE = 0,
+    VERTEX_MODE_STABLE = 1,
+    VERTEX_MODE_COUNT
+};
+
+// Name of each vertex mode, indexed by its value: for labels and the command line.
+constexpr std::array<const char*, VERTEX_MODE_COUNT> vertexModeNames = {"spline", "stable"};
+
+// The mode after `mode`, wrapping from the last back to the first.
+inline int nextVertexMode(int mode) {
+    return (mode + 1) % VERTEX_MODE_COUNT;
+}
+
 // Turns a sequence of Frames into Mosaics.
 //
-// Two ways of choosing the vertices, picked by `stable vertices`:
+// Two ways of choosing the vertices, picked by `vertex mode` (a VertexMode):
 //
-// - Spline (default, the original look): all Contours are joined into one
+// - Spline (0, default, the original look): all Contours are joined into one
 //   spline and sampled `interpolation resolution` times. Vertices move with
 //   every bit of noise. Each Tessel takes the Frame colour at its centroid.
-// - Stable: the Mosaic stays still from one Frame to the next.
+// - Stable (1): the Mosaic stays still from one Frame to the next.
 //   Vertices are not taken from the Contours directly: the Frame is divided into
 //   cells of `cell size` pixels, every cell a Contour passes through contributes
 //   one vertex at a fixed position inside it, and a cell stays active for
@@ -71,7 +86,7 @@ public:
     ofParameter<int> threshold1;
     ofParameter<int> threshold2;
     ofParameter<int> blurIterations;
-    ofParameter<bool> stableVertices;
+    ofParameter<int> vertexMode; // a VertexMode
     ofParameter<int> cellSize;
     ofParameter<int> persistence;
     ofParameter<int> resolution;
@@ -85,7 +100,7 @@ private:
     // Frames since a Contour last passed through each active cell.
     std::map<Cell, int> cellAge;
     int stateCellSize = 0;
-    bool stateStable = false;
+    int stateMode = VERTEX_MODE_SPLINE;
     int stateWidth = 0, stateHeight = 0;
 
     ofPixels rgb;
