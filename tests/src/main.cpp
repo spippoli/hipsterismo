@@ -214,6 +214,7 @@ class ofApp : public ofxUnitTestsApp {
         testSplineMode();
         testSplineGolden();
         testVertexMode();
+        testParametersPerMode();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -509,6 +510,39 @@ class ofApp : public ofxUnitTestsApp {
         xml.parse("<mosaic><stable_vertices>1</stable_vertices></mosaic>");
         ofDeserialize(xml, old.parameters);
         ofxTestEq(old.vertexMode.get(), int(VERTEX_MODE_SPLINE), "an old stable_vertices tag is ignored");
+    }
+
+    static std::vector<std::string> names(const std::vector<std::shared_ptr<ofAbstractParameter>>& parameters) {
+        std::vector<std::string> result;
+        for (const auto& parameter : parameters) result.push_back(parameter->getName());
+        return result;
+    }
+
+    void testParametersPerMode() {
+        MosaicMaker maker;
+        const std::vector<std::string> spline = {
+            "vertex mode", "first threshold", "second threshold", "blur iteration",
+            "interpolation resolution", "min area", "max area", "find holes"};
+        const std::vector<std::string> stable = {
+            "vertex mode", "first threshold", "second threshold", "blur iteration",
+            "cell size", "persistence", "min area", "max area", "find holes"};
+        ofxTest(names(maker.parametersFor(VERTEX_MODE_SPLINE)) == spline,
+                "spline mode shows its parameters, without cell size and persistence");
+        ofxTest(names(maker.parametersFor(VERTEX_MODE_STABLE)) == stable,
+                "stable mode shows its parameters, without interpolation resolution");
+
+        auto shown = maker.parametersFor(VERTEX_MODE_STABLE);
+        ofxTest(shown[0]->isReferenceTo(maker.vertexMode), "parametersFor() gives the maker's own vertex mode");
+
+        bool allInGroup = true;
+        for (int mode = 0; mode < VERTEX_MODE_COUNT; mode++) {
+            for (const auto& parameter : maker.parametersFor(mode)) {
+                bool found = false;
+                for (const auto& own : maker.parameters) found = found || own->isReferenceTo(*parameter);
+                allInGroup = allInGroup && found;
+            }
+        }
+        ofxTest(allInGroup, "every shown parameter is one of the maker's parameters");
     }
 
     void testContourAreaFilter() {

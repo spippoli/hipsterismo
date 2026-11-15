@@ -81,6 +81,12 @@ public:
     Mosaic make(const ofPixels& frame);
     void reset();
 
+    // The parameters that matter in vertex mode `mode`, for the panel:
+    // `vertex mode` first, then the mode's own parameters in group order.
+    // Spline hides `cell size` and `persistence`; stable hides
+    // `interpolation resolution`. Every element is one of `parameters`.
+    std::vector<std::shared_ptr<ofAbstractParameter>> parametersFor(int mode);
+
     // Tunable pipeline parameters, named after their settings.xml tags.
     ofParameterGroup parameters;
     ofParameter<int> threshold1;
