@@ -67,6 +67,20 @@ Domain terms (Frame, Contour, Tessel, Mosaic) are defined in `GLOSSARY.md`.
 | `d` | Toggle Delaunay wireframe overlay |
 | `p` | Save a screenshot to `bin/data/screenshot.png` |
 
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (`spippoli/hipsterismo`), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five default labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Attribution
 
 In this project, attribution lines use the clown emoji 🤡 in place of the robot emoji 🤖, in commit messages and in pull request descriptions alike: for example `🤡 Generated with [Claude Code](https://claude.com/claude-code)`.
