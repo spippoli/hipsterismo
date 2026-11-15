@@ -31,7 +31,6 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -52,15 +51,30 @@ import kotlinx.coroutines.delay
  * portrait the slider and the gallery / shutter / overlay row sit in a bottom
  * panel; in landscape the slider turns vertical on the left and the buttons
  * move to a column on the right.
+ *
+ * The slider's step [index] and the [overlay] toggle belong to the caller,
+ * since the result screen shares the toggle. While [busy] (a photo is being
+ * processed) the last Mosaic stays frozen and dimmed, the chip reads "in
+ * pausa", a ring spins on the shutter and every control is disabled.
+ * [onShoot] and [onPick] are the shutter and the gallery thumbnail.
  */
 @Composable
-fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
-    var index by rememberSaveable { mutableIntStateOf(MinPatchArea.defaultIndex) }
-    var overlay by rememberSaveable { mutableStateOf(false) }
+fun CameraScreen(
+    pipeline: PreviewPipeline,
+    previewView: PreviewView,
+    index: Int,
+    onIndex: (Int) -> Unit,
+    overlay: Boolean,
+    onOverlay: () -> Unit,
+    busy: Boolean,
+    onShoot: () -> Unit,
+    onPick: () -> Unit,
+) {
     var stats by rememberSaveable { mutableStateOf(false) }
     val mosaic by pipeline.mosaic.collectAsState()
     val minPatchArea = MinPatchArea.at(index)
     SideEffect { pipeline.minPatchArea = minPatchArea }
+
 
     // fps: Mosaics drawn in the last second, counted once each.
     val drawn = remember { RollingWindow() }
@@ -81,7 +95,7 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
             fps = drawn.rate(now)
             coreMs = pipeline.coreMs.mean(now)
             val m = lastDrawn[0]
-            if (++tick % 4 == 0 && m != null && fps > 0) {
+            if (++tick % 4 == 0 && m != null && fps > 0 && !pipeline.paused) {
                 Log.i(
                     PreviewPipeline.TAG,
                     "preview %dx%d: %.1f fps, core %.1f ms, work %.1f ms, %d Tessels, min patch area %d".format(
@@ -92,9 +106,10 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
         }
     }
 
-    val live = mosaic != null
+    val live = mosaic != null && !busy
     val chipText = when {
-        !live -> stringResource(R.string.starting)
+        busy -> stringResource(R.string.paused)
+        mosaic == null -> stringResource(R.string.starting)
         stats -> stringResource(R.string.live_stats, fps, coreMs, mosaic?.tesselCount ?: 0)
         else -> stringResource(R.string.live_fps, fps)
     }
@@ -107,7 +122,10 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
             // covers it (same aspect ratio, both cropped to fill).
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
             mosaic?.let {
-                MosaicCanvas(it, Modifier.fillMaxSize().background(Color.Black), crop = true, showContours = overlay, onDrawn = onDrawn)
+                MosaicCanvas(
+                    it, Modifier.fillMaxSize().background(Color.Black),
+                    crop = true, showContours = overlay, dim = busy, onDrawn = onDrawn,
+                )
             }
         }
     }
@@ -127,7 +145,10 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         BasicText(stringResource(R.string.coarse), style = labelStyle(10f), softWrap = false)
-                        StepSlider(index, MinPatchArea.steps.size, { index = it }, sliderLabel, areaText, Modifier.weight(1f).fillMaxWidth(), vertical = true)
+                        StepSlider(
+                            index, MinPatchArea.steps.size, onIndex, sliderLabel, areaText,
+                            Modifier.weight(1f).fillMaxWidth(), vertical = true, enabled = !busy,
+                        )
                         BasicText(stringResource(R.string.fine), style = labelStyle(10f), softWrap = false)
                     }
                     Chip(start.align(Alignment.BottomStart).padding(start = 46.dp, bottom = 14.dp)) {
@@ -142,9 +163,9 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    OverlayButton(overlay, { overlay = !overlay })
-                    Shutter()
-                    GalleryThumb()
+                    OverlayButton(overlay, onOverlay, enabled = !busy)
+                    Shutter(busy, onShoot)
+                    GalleryThumb(!busy, onPick)
                 }
             }
         } else {
@@ -165,7 +186,10 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextureIcon()
-                    StepSlider(index, MinPatchArea.steps.size, { index = it }, sliderLabel, areaText, Modifier.weight(1f).height(28.dp))
+                    StepSlider(
+                        index, MinPatchArea.steps.size, onIndex, sliderLabel, areaText,
+                        Modifier.weight(1f).height(28.dp), enabled = !busy,
+                    )
                     BasicText(areaText, Modifier.widthIn(min = 58.dp), style = labelStyle().copy(textAlign = TextAlign.End))
                 }
                 Row(
@@ -173,9 +197,9 @@ fun CameraScreen(pipeline: PreviewPipeline, previewView: PreviewView) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GalleryThumb()
-                    Shutter()
-                    OverlayButton(overlay, { overlay = !overlay })
+                    GalleryThumb(!busy, onPick)
+                    Shutter(busy, onShoot)
+                    OverlayButton(overlay, onOverlay, enabled = !busy)
                 }
             }
         }

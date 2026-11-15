@@ -2,6 +2,7 @@
 <resources>
     <string name="app_name">Hipsterismo</string>
     <string name="starting">avvio…</string>
+    <string name="paused">in pausa</string>
     <string name="live_fps">LIVE · %1$.0f fps</string>
     <string name="live_stats">LIVE · %1$.1f fps · core %2$.1f ms · %3$d Tessel</string>
     <string name="area_px2">%1$d px²</string>
@@ -12,4 +13,10 @@
     <string name="permission_body">Hipsterismo trasforma l\'inquadratura della fotocamera in un Mosaic dal vivo. Senza il permesso Fotocamera non ha niente da mostrare. Le immagini restano sul telefono.</string>
     <string name="permission_ask">Consenti la fotocamera</string>
     <string name="permission_settings">Apri le impostazioni</string>
+    <string name="result_title">Mosaic</string>
+    <string name="back">Indietro</string>
+    <string name="discard">Scarta</string>
+    <string name="share">Condividi</string>
+    <string name="save">Salva</string>
+    <string name="photo_failed">Non riesco a leggere la foto</string>
 </resources>
