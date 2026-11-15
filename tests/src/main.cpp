@@ -201,6 +201,68 @@ struct StableMaker : MosaicMaker {
     StableMaker() { vertexMode = VERTEX_MODE_STABLE; }
 };
 
+struct AdaptiveMaker : MosaicMaker {
+    explicit AdaptiveMaker(int minPatch = 32) {
+        vertexMode = VERTEX_MODE_ADAPTIVE;
+        minPatchArea = minPatch;
+    }
+};
+
+namespace {
+
+// Left half `left`, right half (x >= 80) `right`.
+ofPixels halvesFrame(const ofColor& left, const ofColor& right) {
+    ofPixels frame = solidFrame(160, 120, left);
+    for (int y = 0; y < 120; y++) {
+        for (int x = 80; x < 160; x++) frame.setColor(x, y, right);
+    }
+    return frame;
+}
+
+// A 4x4 square of `fg`, from (78, 58) to (82, 62), in the middle of `bg`.
+ofPixels smallSquareFrame(const ofColor& bg, const ofColor& fg) {
+    ofPixels frame = solidFrame(160, 120, bg);
+    for (int y = 58; y < 62; y++) {
+        for (int x = 78; x < 82; x++) frame.setColor(x, y, fg);
+    }
+    return frame;
+}
+
+// The segments of a Contour, including the closing one of a closed Contour.
+std::vector<std::pair<glm::vec2, glm::vec2>> segments(const ofPolyline& contour) {
+    std::vector<std::pair<glm::vec2, glm::vec2>> result;
+    const auto& v = contour.getVertices();
+    for (size_t i = 0; i + 1 < v.size(); i++) result.push_back({v[i], v[i + 1]});
+    if (contour.isClosed() && v.size() > 2) result.push_back({v.back(), v.front()});
+    return result;
+}
+
+// A segment lying on the border line x = 0, x = width, y = 0 or y = height.
+bool onBorder(glm::vec2 a, glm::vec2 b, float width, float height) {
+    return (a.x == b.x && (a.x == 0 || a.x == width)) || (a.y == b.y && (a.y == 0 || a.y == height));
+}
+
+bool anyContourOnBorder(const Mosaic& mosaic, float width, float height) {
+    for (const ofPolyline& contour : mosaic.contours) {
+        for (auto [a, b] : segments(contour)) {
+            if (onBorder(a, b, width, height)) return true;
+        }
+    }
+    return false;
+}
+
+// Whether segments ab and cd cross at a point inside both (touching at an
+// end point or along a shared line does not count).
+bool properlyCross(glm::dvec2 a, glm::dvec2 b, glm::dvec2 c, glm::dvec2 d) {
+    auto side = [](glm::dvec2 p, glm::dvec2 q, glm::dvec2 r) {
+        double v = (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+        return (v > 0) - (v < 0);
+    };
+    return side(a, b, c) * side(a, b, d) < 0 && side(c, d, a) * side(c, d, b) < 0;
+}
+
+} // namespace
+
 class ofApp : public ofxUnitTestsApp {
     void run() {
         testEmptyFrame();
@@ -219,6 +281,14 @@ class ofApp : public ofxUnitTestsApp {
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
+        testAdaptiveTiling();
+        testAdaptiveUniformFrame();
+        testAdaptiveHalves();
+        testAdaptiveMinPatchArea();
+        testAdaptiveNoBorderContour();
+        testAdaptiveTesselsDoNotCrossContours();
+        testAdaptiveDeterminism();
+        testAdaptivePixelFormats();
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
         testCommandLineWithoutArguments();
@@ -267,12 +337,13 @@ class ofApp : public ofxUnitTestsApp {
             ofxTestEq(after.output, std::string("photo-mosaic.png"), "--mode after the image is not the output");
         }
 
-        // A mode is accepted as soon as it is in the list of names.
-        std::array<const char*, 3> withAdaptive = {"spline", "stable", "adaptive"};
-        CommandLine adaptive = parseCommandLine({"--mode", "adaptive", "photo.jpg"}, withAdaptive);
-        ofxTestEq(adaptive.mode.value_or(-1), 2, "--mode adaptive chooses the third listed mode");
-        ofxTestEq(int(parse({"--mode", "adaptive", "photo.jpg"}).action), int(CommandLine::ERROR),
-                  "--mode adaptive is unknown while adaptive is not a vertex mode");
+        CommandLine adaptive = parse({"--mode", "adaptive", "photo.jpg"});
+        ofxTestEq(adaptive.mode.value_or(-1), int(VERTEX_MODE_ADAPTIVE), "--mode adaptive chooses adaptive");
+
+        // A mode is accepted only when it is in the list of names.
+        std::array<const char*, 2> twoModes = {"spline", "stable"};
+        ofxTestEq(int(parseCommandLine({"--mode", "adaptive", "photo.jpg"}, twoModes).action),
+                  int(CommandLine::ERROR), "--mode adaptive is unknown when adaptive is not listed");
     }
 
     void testCommandLineErrors() {
@@ -498,9 +569,13 @@ class ofApp : public ofxUnitTestsApp {
         ofxTestEq(maker.vertexMode.getMax(), VERTEX_MODE_COUNT - 1, "vertex mode ends at the last mode");
         ofxTestEq(std::string(vertexModeNames[VERTEX_MODE_SPLINE]), std::string("spline"), "mode 0 is spline");
         ofxTestEq(std::string(vertexModeNames[VERTEX_MODE_STABLE]), std::string("stable"), "mode 1 is stable");
+        ofxTestEq(std::string(vertexModeNames[VERTEX_MODE_ADAPTIVE]), std::string("adaptive"), "mode 2 is adaptive");
+        ofxTestEq(int(VERTEX_MODE_COUNT), 3, "there are three vertex modes");
+        ofxTestEq(maker.vertexMode.getMax(), 2, "vertex mode goes up to 2");
 
         ofxTestEq(nextVertexMode(VERTEX_MODE_SPLINE), int(VERTEX_MODE_STABLE), "spline is followed by stable");
-        ofxTestEq(nextVertexMode(VERTEX_MODE_COUNT - 1), int(VERTEX_MODE_SPLINE), "the last mode wraps to spline");
+        ofxTestEq(nextVertexMode(VERTEX_MODE_STABLE), int(VERTEX_MODE_ADAPTIVE), "stable is followed by adaptive");
+        ofxTestEq(nextVertexMode(VERTEX_MODE_ADAPTIVE), int(VERTEX_MODE_SPLINE), "adaptive wraps to spline");
 
         ofXml xml;
         xml.parse("<mosaic><vertex_mode>1</vertex_mode></mosaic>");
@@ -531,6 +606,13 @@ class ofApp : public ofxUnitTestsApp {
                 "spline mode shows its parameters, without cell size and persistence");
         ofxTest(names(maker.parametersFor(VERTEX_MODE_STABLE)) == stable,
                 "stable mode shows its parameters, without interpolation resolution");
+        const std::vector<std::string> adaptive = {"vertex mode", "min patch area"};
+        ofxTest(names(maker.parametersFor(VERTEX_MODE_ADAPTIVE)) == adaptive,
+                "adaptive mode shows only vertex mode and min patch area");
+
+        ofxTestEq(maker.minPatchArea.get(), 32, "min patch area defaults to 32");
+        ofxTestEq(maker.minPatchArea.getMin(), 8, "min patch area starts at 8");
+        ofxTestEq(maker.minPatchArea.getMax(), 1024, "min patch area ends at 1024");
 
         auto shown = maker.parametersFor(VERTEX_MODE_STABLE);
         ofxTest(shown[0]->isReferenceTo(maker.vertexMode), "parametersFor() gives the maker's own vertex mode");
@@ -557,6 +639,7 @@ class ofApp : public ofxUnitTestsApp {
         saved.persistence = 7;
         saved.resolution = 1234;
         saved.findHoles = false;
+        saved.minPatchArea = 77;
         ofXml xml;
         ofSerialize(xml, saved.parameters);
         ofxTestEq(xml.getChild("panel").getChild("cell_size").getIntValue(), 17,
@@ -577,6 +660,9 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(same, "loading restores every parameter, whatever mode was active");
         ofxTestEq(loaded.persistence.get(), 7, "persistence round-trips");
         ofxTestEq(loaded.resolution.get(), 1234, "interpolation resolution round-trips");
+        ofxTestEq(xml.getChild("panel").getChild("min_patch_area").getIntValue(), 77,
+                  "min patch area is saved as <min_patch_area>");
+        ofxTestEq(loaded.minPatchArea.get(), 77, "min patch area round-trips");
 
         MosaicMaker old;
         old.parameters.setName("panel");
@@ -633,6 +719,165 @@ class ofApp : public ofxUnitTestsApp {
             }
         }
         ofxTest(coloursMatch, "mesh vertices and colours match the Tessels");
+    }
+
+    // Synthetic Frames plus fingers.png, for the tests that hold on any Frame.
+    std::vector<std::pair<std::string, ofPixels>> adaptiveFrames() {
+        std::vector<std::pair<std::string, ofPixels>> frames = {
+            {"uniform", solidFrame(160, 120, background)},
+            {"halves", halvesFrame(background, foreground)},
+            {"small square", smallSquareFrame(background, foreground)},
+            {"rectangle", rectangleFrame(background, foreground)},
+            {"noisy rectangle", withNoise(rectangleFrame(background, foreground), 3)},
+            {"odd size", solidFrame(37, 23, foreground)},
+        };
+        ofPixels nearBorder = solidFrame(160, 120, background);
+        for (int y = 6; y < 114; y++) for (int x = 6; x < 154; x++) nearBorder.setColor(x, y, foreground);
+        frames.push_back({"near border", nearBorder});
+        ofPixels scene = loadFixture("fingers.png");
+        if (scene.isAllocated()) frames.push_back({"fingers.png", scene});
+        return frames;
+    }
+
+    void testAdaptiveTiling() {
+        for (auto& [name, frame] : adaptiveFrames()) {
+            Mosaic mosaic = AdaptiveMaker().make(frame);
+            ofLogNotice("adaptive") << name << ": " << mosaic.contours.size() << " Contours, "
+                                    << mosaic.tessels.size() << " Tessels";
+            ofxTest(coversFrame(mosaic, frame.getWidth(), frame.getHeight()),
+                    "adaptive: Tessels tile the " + name + " Frame");
+        }
+
+        // Informational only: real time is checked by hand.
+        ofPixels scene = loadFixture("fingers.png");
+        if (!scene.isAllocated()) return;
+        AdaptiveMaker maker;
+        const int runs = 10;
+        uint64_t start = ofGetElapsedTimeMicros();
+        for (int i = 0; i < runs; i++) maker.make(scene);
+        ofLogNotice("adaptive") << "fingers.png: " << ofToString((ofGetElapsedTimeMicros() - start) / 1000.0 / runs, 1)
+                                << " ms per Frame";
+    }
+
+    void testAdaptiveUniformFrame() {
+        Mosaic mosaic = AdaptiveMaker().make(solidFrame(160, 120, background));
+        ofxTestEq(mosaic.tessels.size(), size_t(2), "adaptive: a uniform Frame gives 2 Tessels");
+        ofxTest(mosaic.contours.empty(), "adaptive: a uniform Frame gives no Contours");
+        bool allBackground = true;
+        for (const Tessel& tessel : mosaic.tessels) allBackground = allBackground && tessel.color == background;
+        ofxTest(allBackground, "adaptive: a uniform Frame gives Tessels of its colour");
+    }
+
+    void testAdaptiveHalves() {
+        Mosaic mosaic = AdaptiveMaker().make(halvesFrame(background, foreground));
+        ofxTestEq(mosaic.contours.size(), size_t(1), "adaptive: two halves give one Contour");
+        if (mosaic.contours.size() == 1) {
+            const ofPolyline& contour = mosaic.contours[0];
+            bool vertical = !contour.isClosed() && contour.size() >= 2;
+            float top = 120, bottom = 0;
+            for (const auto& v : contour.getVertices()) {
+                vertical = vertical && v.x == 80;
+                top = std::min(top, v.y);
+                bottom = std::max(bottom, v.y);
+            }
+            ofxTest(vertical && top == 0 && bottom == 120,
+                    "adaptive: the Contour between two halves is the open segment x = 80");
+        }
+
+        bool sided = true, coloured = true;
+        for (const Tessel& tessel : mosaic.tessels) {
+            bool left = true, right = true;
+            for (const glm::vec3& v : tessel.triangle) {
+                left = left && v.x <= 80;
+                right = right && v.x >= 80;
+            }
+            sided = sided && (left || right);
+            coloured = coloured && tessel.color == (left ? background : foreground);
+        }
+        ofxTest(sided, "adaptive: every Tessel lies in one half");
+        ofxTest(coloured, "adaptive: every Tessel takes exactly its half's colour");
+    }
+
+    void testAdaptiveMinPatchArea() {
+        ofPixels frame = smallSquareFrame(background, foreground);
+        ofxTest(AdaptiveMaker(32).make(frame).contours.empty(),
+                "adaptive: a 4x4 Patch is absorbed at min patch area 32");
+
+        Mosaic kept = AdaptiveMaker(8).make(frame);
+        ofxTestEq(kept.contours.size(), size_t(1), "adaptive: a 4x4 Patch has a Contour at min patch area 8");
+        if (kept.contours.size() == 1) {
+            const ofPolyline& contour = kept.contours[0];
+            ofRectangle box = contour.getBoundingBox();
+            ofxTest(contour.isClosed(), "adaptive: the Contour around a Patch inside another is closed");
+            ofxTest(box.getLeft() <= 78 && box.getRight() >= 82 && box.getTop() <= 58 && box.getBottom() >= 62
+                        && box.getWidth() <= 6 && box.getHeight() <= 6,
+                    "adaptive: the closed Contour surrounds the 4x4 square");
+        }
+    }
+
+    void testAdaptiveNoBorderContour() {
+        bool none = true;
+        for (auto& [name, frame] : adaptiveFrames()) {
+            bool onIt = anyContourOnBorder(AdaptiveMaker(8).make(frame), frame.getWidth(), frame.getHeight());
+            if (onIt) ofLogError("adaptive") << name << ": a Contour runs along the Frame border";
+            none = none && !onIt;
+        }
+        ofxTest(none, "adaptive: no Contour runs along the Frame border");
+    }
+
+    void testAdaptiveTesselsDoNotCrossContours() {
+        ofPixels scene = loadFixture("fingers.png");
+        if (!scene.isAllocated()) return;
+        Mosaic mosaic = AdaptiveMaker().make(scene);
+        ofxTest(!mosaic.contours.empty(), "adaptive: fingers.png has Contours");
+        int crossings = 0;
+        for (const Tessel& tessel : mosaic.tessels) {
+            for (int e = 0; e < 3; e++) {
+                glm::dvec2 a(tessel.triangle[e]), b(tessel.triangle[(e + 1) % 3]);
+                for (const ofPolyline& contour : mosaic.contours) {
+                    for (auto [c, d] : segments(contour)) crossings += properlyCross(a, b, c, d);
+                }
+            }
+        }
+        ofxTestEq(crossings, 0, "adaptive: no Tessel edge crosses a Contour on fingers.png");
+    }
+
+    void testAdaptiveDeterminism() {
+        ofPixels scene = loadFixture("fingers.png");
+        ofPixels rectangle = rectangleFrame(background, foreground);
+        ofPixels halves = halvesFrame(background, foreground);
+        AdaptiveMaker a;
+        Mosaic first = a.make(rectangle);
+        a.make(halves);
+        if (scene.isAllocated()) a.make(scene);
+        ofxTest(sameMosaic(first, a.make(rectangle)),
+                "adaptive: the same Frame gives the same Mosaic, with other Frames in between");
+        ofxTest(sameMosaic(first, AdaptiveMaker().make(rectangle)), "adaptive: a fresh maker gives the same Mosaic");
+        if (scene.isAllocated()) {
+            ofxTest(sameMosaic(AdaptiveMaker().make(scene), a.make(scene)),
+                    "adaptive: fingers.png gives the same Mosaic every time");
+        }
+    }
+
+    void testAdaptivePixelFormats() {
+        ofPixels rgb = rectangleFrame(background, foreground);
+        ofPixels rgba = rgb;
+        rgba.setImageType(OF_IMAGE_COLOR_ALPHA);
+        Mosaic fromRgb = AdaptiveMaker().make(rgb);
+        ofxTest(!fromRgb.tessels.empty() && !fromRgb.contours.empty(),
+                "adaptive: an RGB Frame has Tessels and Contours");
+        ofxTest(sameMosaic(fromRgb, AdaptiveMaker().make(rgba)),
+                "adaptive: an RGBA Frame gives the same Mosaic as RGB");
+
+        ofPixels gray = rgb;
+        gray.setImageType(OF_IMAGE_GRAYSCALE);
+        ofPixels grayAsRgb = gray;
+        grayAsRgb.setImageType(OF_IMAGE_COLOR);
+        Mosaic fromGray = AdaptiveMaker().make(gray);
+        ofxTest(!fromGray.contours.empty(), "adaptive: a grayscale Frame has Contours");
+        ofxTest(sameMosaic(fromGray, AdaptiveMaker().make(grayAsRgb)),
+                "adaptive: a grayscale Frame gives the same Mosaic as its RGB equivalent");
+        ofxTest(coversFrame(fromGray, 160, 120), "adaptive: a grayscale Frame is tiled");
     }
 };
 
