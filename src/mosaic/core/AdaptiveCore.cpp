@@ -1,15 +1,69 @@
-#include "Adaptive.h"
+#include "AdaptiveCore.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <cmath>
+#include <cstring>
+#include <iostream>
 #include <numeric>
 #include <queue>
 #include <unordered_map>
 
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+
 #include "CDT.h"
 
-namespace adaptive {
+namespace mosaic::core {
 namespace {
+
+// ------------------------------------------------------------ plain vectors
+
+// A point of the lattice of pixel corners.
+struct IVec {
+    int x = 0, y = 0;
+    bool operator==(const IVec& o) const { return x == o.x && y == o.y; }
+    bool operator!=(const IVec& o) const { return !(*this == o); }
+    IVec operator-(const IVec& o) const { return {x - o.x, y - o.y}; }
+};
+
+struct I64Vec {
+    int64_t x = 0, y = 0;
+    I64Vec() = default;
+    I64Vec(int64_t x_, int64_t y_) : x(x_), y(y_) {}
+    explicit I64Vec(IVec p) : x(p.x), y(p.y) {}
+    I64Vec operator-(const I64Vec& o) const { return {x - o.x, y - o.y}; }
+};
+
+struct DVec {
+    double x = 0, y = 0;
+    DVec() = default;
+    DVec(double x_, double y_) : x(x_), y(y_) {}
+    explicit DVec(IVec p) : x(p.x), y(p.y) {}
+    DVec operator+(const DVec& o) const { return {x + o.x, y + o.y}; }
+    DVec operator-(const DVec& o) const { return {x - o.x, y - o.y}; }
+    DVec operator/(double s) const { return {x / s, y / s}; }
+};
+
+double dot(const DVec& a, const DVec& b) {
+    // The products first, then their sum, as glm does.
+    const double px = a.x * b.x, py = a.y * b.y;
+    return px + py;
+}
+
+// --------------------------------------------------------------- logging
+
+LogHook& logHook() {
+    static LogHook hook = [](LogLevel level, const std::string& message) {
+        std::cerr << (level == LogLevel::Error ? "[error] " : "[warning] ") << "Mosaic: " << message << "\n";
+    };
+    return hook;
+}
+
+void log(LogLevel level, const std::string& message) {
+    if (logHook()) logHook()(level, message);
+}
+
+// ------------------------------------------------------------ union-find
 
 // Union-find over pixels or Patches, with union by size.
 struct DisjointSets {
@@ -48,10 +102,14 @@ int relabel(std::vector<int>& label, DisjointSets& sets, int count) {
     return next;
 }
 
+const uint8_t* pixel(const RgbImage& rgb, int x, int y) {
+    return rgb.data + size_t(y) * rgb.stride + size_t(x) * 3;
+}
+
 // ------------------------------------------------------------ Lab Frame
 
-cv::Mat blurredLab(const ofPixels& rgb, float sigma) {
-    cv::Mat source = ofxCv::toCv(rgb), unit, lab;
+cv::Mat blurredLab(const RgbImage& rgb, float sigma) {
+    cv::Mat source(rgb.height, rgb.width, CV_8UC3, const_cast<uint8_t*>(rgb.data), size_t(rgb.stride)), unit, lab;
     source.convertTo(unit, CV_32F, 1.0 / 255);
     cv::cvtColor(unit, lab, cv::COLOR_RGB2Lab);
     cv::GaussianBlur(lab, lab, cv::Size(0, 0), sigma);
@@ -146,16 +204,18 @@ std::vector<std::pair<int, int>> neighbourPairs(const std::vector<int>& label, i
 // colours one pixel wide, and the segmentation keeps them as Patches long
 // enough to pass `min patch area`; in the Frame itself they have the colour
 // of the side they belong to. Returns the new count.
-int joinEqualColours(const ofPixels& rgb, std::vector<int>& label, int count) {
-    const int w = rgb.getWidth(), h = rgb.getHeight();
+int joinEqualColours(const RgbImage& rgb, std::vector<int>& label, int count) {
+    const int w = rgb.width, h = rgb.height;
     std::vector<std::array<uint64_t, 4>> sum(count, {0, 0, 0, 0}); // r, g, b, pixels
-    const unsigned char* data = rgb.getData();
-    for (int i = 0; i < w * h; i++) {
-        auto& s = sum[label[i]];
-        s[0] += data[i * 3];
-        s[1] += data[i * 3 + 1];
-        s[2] += data[i * 3 + 2];
-        s[3]++;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            const uint8_t* p = pixel(rgb, x, y);
+            auto& s = sum[label[y * w + x]];
+            s[0] += p[0];
+            s[1] += p[1];
+            s[2] += p[2];
+            s[3]++;
+        }
     }
     // Equal means are an equivalence, and joining two Patches keeps their
     // mean, so one pass over the original neighbours is enough.
@@ -201,8 +261,8 @@ int splitIntoPieces(std::vector<int>& label, int w, int h) {
 // first, until no Patch has fewer than `minArea` pixels. With `onlySmall`,
 // only merges that involve a Patch under `minArea` count: the small ones are
 // absorbed into a neighbour and the others stay as they are. Relabels in
-// place, 0..count-1 in scan order.
-void wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minArea, bool onlySmall) {
+// place, 0..count-1 in scan order, and returns the new count.
+int wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minArea, bool onlySmall) {
     const int w = lab.cols, h = lab.rows;
     std::vector<double> n(count, 0);
     std::vector<cv::Vec3d> sum(count, cv::Vec3d(0, 0, 0));
@@ -279,7 +339,7 @@ void wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minAr
         }
     }
 
-    relabel(label, sets, count);
+    return relabel(label, sets, count);
 }
 
 // ---------------------------------------------------- boundary chains
@@ -287,7 +347,7 @@ void wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minAr
 // A Patch boundary between two junctions, on the lattice of pixel corners
 // (0..width x 0..height). A closed chain ends where it starts.
 struct Chain {
-    std::vector<glm::ivec2> points;
+    std::vector<IVec> points;
     bool closed = false;
 };
 
@@ -372,9 +432,9 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
 // chains still meet at shared points. No other chain touches a dropped point:
 // it has only this chain's two cracks.
 void mergeCollinear(Chain& chain) {
-    std::vector<glm::ivec2>& p = chain.points;
+    std::vector<IVec>& p = chain.points;
     if (p.size() < 3) return;
-    std::vector<glm::ivec2> kept = {p.front()};
+    std::vector<IVec> kept = {p.front()};
     for (size_t i = 1; i + 1 < p.size(); i++) {
         if (p[i] - p[i - 1] != p[i + 1] - p[i]) kept.push_back(p[i]);
     }
@@ -385,7 +445,7 @@ void mergeCollinear(Chain& chain) {
 // Whether a chain runs along the Frame border. A chain is all border or all
 // inside: a corner where a border crack meets an inner one is a junction.
 bool onBorder(const Chain& chain, int w, int h) {
-    glm::ivec2 a = chain.points[0], b = chain.points[1];
+    IVec a = chain.points[0], b = chain.points[1];
     return (a.x == b.x && (a.x == 0 || a.x == w)) || (a.y == b.y && (a.y == 0 || a.y == h));
 }
 
@@ -393,21 +453,20 @@ bool onBorder(const Chain& chain, int w, int h) {
 
 // Marks with Douglas–Peucker the points of p[first..last] to keep at
 // tolerance `epsilon`; p[first] and p[last] are kept by the caller.
-void douglasPeucker(const std::vector<glm::ivec2>& p, size_t first, size_t last, double epsilon,
-                    std::vector<char>& keep) {
+void douglasPeucker(const std::vector<IVec>& p, size_t first, size_t last, double epsilon, std::vector<char>& keep) {
     std::vector<std::pair<size_t, size_t>> spans = {{first, last}};
     while (!spans.empty()) {
         auto [i, j] = spans.back();
         spans.pop_back();
         if (j <= i + 1) continue;
-        const glm::dvec2 a(p[i]), d = glm::dvec2(p[j]) - a;
-        const double length2 = glm::dot(d, d);
+        const DVec a(p[i]), d = DVec(p[j]) - a;
+        const double length2 = dot(d, d);
         double farthest = -1; // squared distance to the line (to `a` if a == b)
         size_t k = i;
         for (size_t m = i + 1; m < j; m++) {
-            const glm::dvec2 q = glm::dvec2(p[m]) - a;
+            const DVec q = DVec(p[m]) - a;
             const double cross = q.x * d.y - q.y * d.x;
-            const double distance2 = length2 == 0 ? glm::dot(q, q) : cross * cross / length2;
+            const double distance2 = length2 == 0 ? dot(q, q) : cross * cross / length2;
             if (distance2 > farthest) {
                 farthest = distance2;
                 k = m;
@@ -420,19 +479,20 @@ void douglasPeucker(const std::vector<glm::ivec2>& p, size_t first, size_t last,
     }
 }
 
-// The chain simplified with Douglas–Peucker at `epsilon`, its ends kept. A chain that ends where it starts (a loop, or a chain from a junction
-// back to itself) is split at its point farthest from the start, and keeps at
-// least three distinct points, so it still encloses an area.
+// The chain simplified with Douglas–Peucker at `epsilon`, its ends kept. A
+// chain that ends where it starts (a loop, or a chain from a junction back to
+// itself) is split at its point farthest from the start, and keeps at least
+// three distinct points, so it still encloses an area.
 Chain simplify(const Chain& chain, double epsilon) {
-    const std::vector<glm::ivec2>& p = chain.points;
+    const std::vector<IVec>& p = chain.points;
     const size_t n = p.size();
     std::vector<char> keep(n, 0);
     keep[0] = keep[n - 1] = 1;
     if (p[0] != p[n - 1]) {
         douglasPeucker(p, 0, n - 1, epsilon, keep);
     } else {
-        auto distance2 = [](glm::ivec2 a, glm::ivec2 b) {
-            glm::i64vec2 d = glm::i64vec2(b) - glm::i64vec2(a);
+        auto distance2 = [](IVec a, IVec b) {
+            I64Vec d = I64Vec(b) - I64Vec(a);
             return d.x * d.x + d.y * d.y;
         };
         size_t far = 1;
@@ -444,11 +504,11 @@ Chain simplify(const Chain& chain, double epsilon) {
         douglasPeucker(p, far, n - 1, epsilon, keep);
         if (std::count(keep.begin(), keep.end(), 1) < 4) {
             // Only the start and `far`: add the point farthest from their line.
-            const glm::i64vec2 a(p[0]), d = glm::i64vec2(p[far]) - a;
+            const I64Vec a(p[0]), d = I64Vec(p[far]) - a;
             size_t third = 0;
             int64_t best = -1;
             for (size_t k = 1; k + 1 < n; k++) {
-                const glm::i64vec2 q = glm::i64vec2(p[k]) - a;
+                const I64Vec q = I64Vec(p[k]) - a;
                 const int64_t area = std::abs(q.x * d.y - q.y * d.x);
                 if (!keep[k] && area > best) {
                     best = area;
@@ -467,13 +527,13 @@ Chain simplify(const Chain& chain, double epsilon) {
 }
 
 // Sign of the turn a -> b -> c: 1 left, -1 right, 0 collinear. Exact on the lattice.
-int orientation(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c) {
+int orientation(IVec a, IVec b, IVec c) {
     const int64_t v = int64_t(b.x - a.x) * (c.y - a.y) - int64_t(b.y - a.y) * (c.x - a.x);
     return (v > 0) - (v < 0);
 }
 
 // Whether p lies on the closed segment ab (p collinear with a and b).
-bool onSegment(glm::ivec2 a, glm::ivec2 b, glm::ivec2 p) {
+bool onSegment(IVec a, IVec b, IVec p) {
     return orientation(a, b, p) == 0 && std::min(a.x, b.x) <= p.x && p.x <= std::max(a.x, b.x)
         && std::min(a.y, b.y) <= p.y && p.y <= std::max(a.y, b.y);
 }
@@ -483,12 +543,12 @@ bool onSegment(glm::ivec2 a, glm::ivec2 b, glm::ivec2 p) {
 // chains collapsed onto one line, or a chain folding back on itself), the
 // same segment twice, a crossing, or a point touching the other segment's
 // inside all conflict.
-bool conflict(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::ivec2 d) {
+bool conflict(IVec a, IVec b, IVec c, IVec d) {
     const bool sharesA = a == c || a == d, sharesB = b == c || b == d;
     if (sharesA && sharesB) return true;
     if (sharesA || sharesB) {
-        const glm::ivec2 s = sharesA ? a : b, p = sharesA ? b : a, q = s == c ? d : c;
-        const glm::i64vec2 u = glm::i64vec2(p) - glm::i64vec2(s), v = glm::i64vec2(q) - glm::i64vec2(s);
+        const IVec s = sharesA ? a : b, p = sharesA ? b : a, q = s == c ? d : c;
+        const I64Vec u = I64Vec(p) - I64Vec(s), v = I64Vec(q) - I64Vec(s);
         return orientation(s, p, q) == 0 && u.x * v.x + u.y * v.y > 0;
     }
     if (orientation(a, b, c) * orientation(a, b, d) < 0 && orientation(c, d, a) * orientation(c, d, b) < 0) {
@@ -528,7 +588,7 @@ std::vector<Chain> simplifyChains(const std::vector<Chain>& exact, int w, int h,
     while (true) {
         for (auto& cell : cells) cell.clear();
         for (size_t i = 0; i < count; i++) {
-            const std::vector<glm::ivec2>& p = chains[i].points;
+            const std::vector<IVec>& p = chains[i].points;
             for (size_t k = 0; k + 1 < p.size(); k++) {
                 const int x0 = std::min(p[k].x, p[k + 1].x) / cellSize, x1 = std::max(p[k].x, p[k + 1].x) / cellSize;
                 const int y0 = std::min(p[k].y, p[k + 1].y) / cellSize, y1 = std::max(p[k].y, p[k + 1].y) / cellSize;
@@ -573,13 +633,13 @@ std::vector<Chain> simplifyChains(const std::vector<Chain>& exact, int w, int h,
 
 // ------------------------------------------------- triangulation, colour
 
-using Triangles = std::vector<std::array<glm::dvec2, 3>>;
+using Triangles = std::vector<std::array<DVec, 3>>;
 
 Triangles triangulate(const std::vector<Chain>& chains, int w) {
     std::vector<CDT::V2d<double>> vertices;
     std::vector<CDT::Edge> edges;
     std::unordered_map<long, CDT::VertInd> index;
-    auto vertex = [&](glm::ivec2 p) {
+    auto vertex = [&](IVec p) {
         auto [it, added] = index.try_emplace(long(p.y) * (w + 1) + p.x, CDT::VertInd(vertices.size()));
         if (added) vertices.push_back(CDT::V2d<double>(p.x, p.y));
         return it->second;
@@ -607,7 +667,7 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
         Triangles triangles;
         triangles.reserve(cdt.triangles.size());
         for (const CDT::Triangle& t : cdt.triangles) {
-            std::array<glm::dvec2, 3> triangle;
+            std::array<DVec, 3> triangle;
             for (int k = 0; k < 3; k++) {
                 const CDT::V2d<double>& v = cdt.vertices[t.vertices[k]];
                 triangle[k] = {v.x, v.y};
@@ -622,12 +682,12 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
         // The crossing repair leaves no conflicting chains, so this should
         // not happen. The four Frame corners are vertices, so the
         // unconstrained triangulation still tiles the Frame.
-        ofLogWarning("Mosaic") << "constrained triangulation failed (" << e.what()
-                               << "), Tessels may cross Patches in this Frame";
+        log(LogLevel::Warning, std::string("constrained triangulation failed (") + e.what()
+                                   + "), Tessels may cross Patches in this Frame");
         try {
             return run(false);
         } catch (const std::exception& e) {
-            ofLogError("Mosaic") << "triangulation failed: " << e.what();
+            log(LogLevel::Error, std::string("triangulation failed: ") + e.what());
             return {};
         }
     }
@@ -636,30 +696,27 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
 // Mean colour of the pixels whose centre lies inside the triangle; a centre
 // on an edge counts for the triangle the edge is a top or left edge of, so
 // each pixel counts once. The pixel at the centroid if no centre is inside.
-ofColor meanColour(const ofPixels& rgb, std::array<glm::dvec2, 3> t) {
-    const int w = rgb.getWidth(), h = rgb.getHeight();
-    auto cross = [](glm::dvec2 a, glm::dvec2 b, glm::dvec2 p) {
-        return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-    };
+Rgb meanColour(const RgbImage& rgb, std::array<DVec, 3> t) {
+    const int w = rgb.width, h = rgb.height;
+    auto cross = [](DVec a, DVec b, DVec p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
     if (cross(t[0], t[1], t[2]) < 0) std::swap(t[1], t[2]);
     const int x0 = std::max(0, int(std::floor(std::min({t[0].x, t[1].x, t[2].x}) - 0.5)));
     const int x1 = std::min(w - 1, int(std::ceil(std::max({t[0].x, t[1].x, t[2].x}))));
     const int y0 = std::max(0, int(std::floor(std::min({t[0].y, t[1].y, t[2].y}) - 0.5)));
     const int y1 = std::min(h - 1, int(std::ceil(std::max({t[0].y, t[1].y, t[2].y}))));
-    const unsigned char* data = rgb.getData();
     uint64_t r = 0, g = 0, b = 0, count = 0;
     for (int y = y0; y <= y1; y++) {
         for (int x = x0; x <= x1; x++) {
-            glm::dvec2 centre(x + 0.5, y + 0.5);
+            DVec centre(x + 0.5, y + 0.5);
             bool inside = true;
             for (int k = 0; k < 3 && inside; k++) {
-                glm::dvec2 a = t[k], e = t[(k + 1) % 3] - a;
+                DVec a = t[k], e = t[(k + 1) % 3] - a;
                 double side = cross(a, a + e, centre);
                 bool topLeft = (e.y == 0 && e.x < 0) || e.y > 0;
                 inside = side > 0 || (side == 0 && topLeft);
             }
             if (!inside) continue;
-            const unsigned char* p = data + (size_t(y) * w + x) * 3;
+            const uint8_t* p = pixel(rgb, x, y);
             r += p[0];
             g += p[1];
             b += p[2];
@@ -667,11 +724,33 @@ ofColor meanColour(const ofPixels& rgb, std::array<glm::dvec2, 3> t) {
         }
     }
     if (count == 0) {
-        glm::dvec2 c = (t[0] + t[1] + t[2]) / 3.0;
-        return rgb.getColor(ofClamp(int(c.x), 0, w - 1), ofClamp(int(c.y), 0, h - 1));
+        DVec c = (t[0] + t[1] + t[2]) / 3.0;
+        const uint8_t* p = pixel(rgb, std::clamp(int(c.x), 0, w - 1), std::clamp(int(c.y), 0, h - 1));
+        return {p[0], p[1], p[2]};
     }
-    auto mean = [&](uint64_t sum) { return (unsigned char)((sum + count / 2) / count); };
-    return ofColor(mean(r), mean(g), mean(b));
+    auto mean = [&](uint64_t sum) { return uint8_t((sum + count / 2) / count); };
+    return {mean(r), mean(g), mean(b)};
+}
+
+// Steps 1 and 2, keeping the Lab Frame out of the public interface.
+Segmentation segmentWith(const RgbImage& rgb, const Sizes& sizes) {
+    const int w = rgb.width, h = rgb.height;
+    cv::Mat lab = blurredLab(rgb, sizes.blurSigma);
+    Segmentation segmentation;
+    int& count = segmentation.count;
+    std::vector<int>& label = segmentation.label;
+    label = felzenszwalb(lab, count);
+    count = joinEqualColours(rgb, label, count);
+    count = wardMerge(lab, label, count, sizes.minPatchArea, false);
+    // Ward merging may still leave a Patch in pieces that touch only at a
+    // corner; absorbing just the small pieces keeps the rest of the Patches.
+    count = splitIntoPieces(label, w, h);
+    count = wardMerge(lab, label, count, sizes.minPatchArea, true);
+    return segmentation;
+}
+
+bool isEmpty(const RgbImage& rgb) {
+    return !rgb.data || rgb.width <= 0 || rgb.height <= 0;
 }
 
 } // namespace
@@ -687,40 +766,66 @@ Sizes sizesFor(int width, int height, int minPatchArea) {
     return sizes;
 }
 
-Mosaic make(const ofPixels& rgb, int minPatchArea) {
-    const int w = rgb.getWidth(), h = rgb.getHeight();
+Segmentation segment(const RgbImage& frame, int minPatchArea) {
+    if (isEmpty(frame)) return {};
+    return segmentWith(frame, sizesFor(frame.width, frame.height, minPatchArea));
+}
+
+Mosaic makeAdaptive(const RgbImage& rgb, int minPatchArea) {
+    Mosaic mosaic;
+    if (isEmpty(rgb)) return mosaic;
+    const int w = rgb.width, h = rgb.height;
     const Sizes sizes = sizesFor(w, h, minPatchArea);
-    cv::Mat lab = blurredLab(rgb, sizes.blurSigma);
-    int count = 0;
-    std::vector<int> label = felzenszwalb(lab, count);
-    count = joinEqualColours(rgb, label, count);
-    wardMerge(lab, label, count, sizes.minPatchArea, false);
-    // Ward merging may still leave a Patch in pieces that touch only at a
-    // corner; absorbing just the small pieces keeps the rest of the Patches.
-    count = splitIntoPieces(label, w, h);
-    wardMerge(lab, label, count, sizes.minPatchArea, true);
+    const std::vector<int> label = segmentWith(rgb, sizes).label;
 
     std::vector<Chain> exact = traceChains(label, w, h);
     for (Chain& chain : exact) mergeCollinear(chain);
     std::vector<Chain> chains = simplifyChains(exact, w, h, sizes.boundaryEpsilon);
-    Mosaic mosaic;
     for (size_t i = 0; i < chains.size(); i++) {
         if (onBorder(exact[i], w, h)) continue;
         const Chain& chain = chains[i];
-        ofPolyline contour;
-        size_t n = chain.points.size() - (chain.closed ? 1 : 0);
-        for (size_t i = 0; i < n; i++) contour.addVertex(chain.points[i].x, chain.points[i].y);
-        contour.setClosed(chain.closed);
-        mosaic.contours.push_back(contour);
+        Contour contour;
+        contour.closed = chain.closed;
+        // A closed chain repeats its start at the end; a Contour does not.
+        const size_t n = chain.points.size() - (chain.closed ? 1 : 0);
+        for (size_t k = 0; k < n; k++) contour.points.push_back({float(chain.points[k].x), float(chain.points[k].y)});
+        mosaic.contours.push_back(std::move(contour));
     }
 
     for (const auto& triangle : triangulate(chains, w)) {
         Tessel tessel;
-        for (int k = 0; k < 3; k++) tessel.triangle[k] = glm::vec3(triangle[k].x, triangle[k].y, 0);
+        for (int k = 0; k < 3; k++) tessel.triangle[k] = {float(triangle[k].x), float(triangle[k].y)};
         tessel.color = meanColour(rgb, triangle);
         mosaic.tessels.push_back(tessel);
     }
     return mosaic;
 }
 
-} // namespace adaptive
+uint64_t hash(const Mosaic& mosaic) {
+    uint64_t h = 14695981039346656037ull;
+    auto byte = [&](uint8_t b) {
+        h ^= b;
+        h *= 1099511628211ull;
+    };
+    auto word = [&](float f) {
+        uint32_t bits;
+        std::memcpy(&bits, &f, sizeof bits);
+        for (int i = 0; i < 4; i++) byte(uint8_t(bits >> (8 * i)));
+    };
+    for (const Tessel& tessel : mosaic.tessels) {
+        for (const Point& v : tessel.triangle) {
+            word(v.x);
+            word(v.y);
+        }
+        byte(tessel.color.r);
+        byte(tessel.color.g);
+        byte(tessel.color.b);
+    }
+    return h;
+}
+
+void setLogHook(LogHook hook) {
+    logHook() = std::move(hook);
+}
+
+} // namespace mosaic::core

@@ -32,6 +32,43 @@ ofColor blockMean(const ofPixels& rgb, int x, int y) {
     return ofColor(r / n, g / n, b / n);
 }
 
+// The adaptive Mosaic of an RGB Frame, from the openFrameworks-free core:
+// ofPixels in, the core's plain types turned back into Tessels and
+// ofPolylines. The core's warnings go to ofLog under "Mosaic".
+Mosaic adaptiveMosaic(const ofPixels& rgb, int minPatchArea) {
+    static const bool logging = [] {
+        mosaic::core::setLogHook([](mosaic::core::LogLevel level, const std::string& message) {
+            ofLog(level == mosaic::core::LogLevel::Error ? OF_LOG_ERROR : OF_LOG_WARNING, "Mosaic") << message;
+        });
+        return true;
+    }();
+    (void)logging;
+
+    mosaic::core::RgbImage image;
+    image.data = rgb.getData();
+    image.width = int(rgb.getWidth());
+    image.height = int(rgb.getHeight());
+    image.stride = int(rgb.getBytesStride());
+    const mosaic::core::Mosaic core = mosaic::core::makeAdaptive(image, minPatchArea);
+
+    Mosaic mosaic;
+    mosaic.tessels.reserve(core.tessels.size());
+    for (const mosaic::core::Tessel& t : core.tessels) {
+        Tessel tessel;
+        for (int k = 0; k < 3; k++) tessel.triangle[k] = glm::vec3(t.triangle[k].x, t.triangle[k].y, 0);
+        tessel.color = ofColor(t.color.r, t.color.g, t.color.b);
+        mosaic.tessels.push_back(tessel);
+    }
+    mosaic.contours.reserve(core.contours.size());
+    for (const mosaic::core::Contour& c : core.contours) {
+        ofPolyline contour;
+        for (const mosaic::core::Point& p : c.points) contour.addVertex(p.x, p.y);
+        contour.setClosed(c.closed);
+        mosaic.contours.push_back(contour);
+    }
+    return mosaic;
+}
+
 } // namespace
 
 MosaicMaker::MosaicMaker() {
@@ -111,7 +148,7 @@ Mosaic MosaicMaker::make(const ofPixels& frame) {
     }
 
     if (mode == VERTEX_MODE_ADAPTIVE) {
-        return adaptive::make(rgb, minPatchArea);
+        return adaptiveMosaic(rgb, minPatchArea);
     }
 
     cv::Mat source = ofxCv::toCv(rgb);
