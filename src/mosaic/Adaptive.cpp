@@ -586,7 +586,15 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
     };
     for (const Chain& chain : chains) {
         for (size_t i = 0; i + 1 < chain.points.size(); i++) {
-            edges.push_back(CDT::Edge(vertex(chain.points[i]), vertex(chain.points[i + 1])));
+            // vertex() numbers vertices as it first sees them, and C++ leaves
+            // the order of evaluating function arguments unspecified (GCC goes
+            // right to left, clang left to right), so the two calls must be
+            // sequenced: otherwise CDT gets another vertex order, hence other
+            // Tessels, with each compiler (#56). This is GCC's old order, which
+            // keeps the golden hash.
+            const CDT::VertInd b = vertex(chain.points[i + 1]);
+            const CDT::VertInd a = vertex(chain.points[i]);
+            edges.push_back(CDT::Edge(a, b));
         }
     }
 
