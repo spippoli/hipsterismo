@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <map>
+#include <numeric>
 #include <random>
 #include <set>
 
@@ -279,6 +281,44 @@ int contourCrossings(const Mosaic& mosaic) {
     return crossings;
 }
 
+// How many Patches a Mosaic shows: Tessels joined across every shared edge
+// that is not a Contour segment, counted as connected groups. Adaptive's
+// Tessels never cross a Contour and its Contour segments are Tessel edges,
+// so each group is one Patch (a Patch whose pixels only touch at a corner
+// may count twice).
+int patchCount(const Mosaic& mosaic) {
+    using Point = std::pair<int, int>;
+    using Edge = std::pair<Point, Point>;
+    auto point = [](glm::vec2 v) { return Point(int(std::lround(v.x)), int(std::lround(v.y))); };
+    auto edge = [&](glm::vec2 a, glm::vec2 b) {
+        Point p = point(a), q = point(b);
+        return p < q ? Edge(p, q) : Edge(q, p);
+    };
+    std::set<Edge> walls;
+    for (const ofPolyline& contour : mosaic.contours) {
+        for (auto [a, b] : segments(contour)) walls.insert(edge(a, b));
+    }
+    std::vector<int> parent(mosaic.tessels.size());
+    std::iota(parent.begin(), parent.end(), 0);
+    auto find = [&](int x) {
+        while (parent[x] != x) x = parent[x] = parent[parent[x]];
+        return x;
+    };
+    std::map<Edge, int> seen;
+    for (size_t t = 0; t < mosaic.tessels.size(); t++) {
+        const auto& v = mosaic.tessels[t].triangle;
+        for (int e = 0; e < 3; e++) {
+            Edge key = edge(v[e], v[(e + 1) % 3]);
+            if (walls.count(key)) continue;
+            auto [it, fresh] = seen.insert({key, int(t)});
+            if (!fresh) parent[find(int(t))] = find(it->second);
+        }
+    }
+    int groups = 0;
+    for (size_t t = 0; t < parent.size(); t++) groups += find(int(t)) == int(t);
+    return groups;
+}
+
 // `top` above the line from (0, 30) to (160, 90), `bottom` below it: a
 // slanted Patch boundary, which the pixels turn into a staircase.
 ofPixels slantedFrame(const ofColor& top, const ofColor& bottom) {
@@ -345,6 +385,8 @@ class ofApp : public ofxUnitTestsApp {
         testAdaptiveCrossingRepairRegressions();
         testAdaptiveDeterminism();
         testAdaptivePixelFormats();
+        testAdaptiveGolden();
+        testAdaptiveScalesWithFrame();
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
         testDelaunayTilesCocircularClusters();
@@ -1016,6 +1058,60 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(sameMosaic(fromGray, AdaptiveMaker().make(grayAsRgb)),
                 "adaptive: a grayscale Frame gives the same Mosaic as its RGB equivalent");
         ofxTest(coversFrame(fromGray, 160, 120), "adaptive: a grayscale Frame is tiled");
+    }
+
+    // At 320x240 adaptive must keep giving exactly the Mosaic it gave before
+    // its size constants were referred to that Frame size (#32).
+    void testAdaptiveGolden() {
+        ofPixels scene = loadFixture("fingers.png");
+        ofxTest(scene.isAllocated(), "fixture fingers.png loads");
+        if (!scene.isAllocated()) return;
+        Mosaic mosaic = AdaptiveMaker().make(scene);
+        const uint64_t hash = mosaicHash(mosaic);
+        ofLogNotice("adaptive golden") << mosaic.tessels.size() << " Tessels, " << patchCount(mosaic)
+                                       << " Patches, hash 0x" << ofToHex(hash);
+        ofxTestEq(hash, uint64_t(0x62e72339903fe092ull), "adaptive Mosaic of fingers.png matches the golden hash");
+    }
+
+    // `frame` resized by `factor` with bilinear interpolation.
+    static ofPixels scaled(const ofPixels& frame, int factor) {
+        cv::Mat big;
+        cv::resize(ofxCv::toCv(frame), big, cv::Size(), factor, factor, cv::INTER_LINEAR);
+        ofPixels result;
+        ofxCv::toOf(big, result);
+        return result;
+    }
+
+    // The same picture at a larger size gives about as many Patches: the
+    // size constants are referred to 320x240 and scale with the Frame.
+    void testAdaptiveScalesWithFrame() {
+        ofxTestEq(patchCount(AdaptiveMaker().make(solidFrame(160, 120, background))), 1,
+                  "patchCount: a uniform Frame is one Patch");
+        ofxTestEq(patchCount(AdaptiveMaker().make(halvesFrame(background, foreground))), 2,
+                  "patchCount: two halves are two Patches");
+
+        ofPixels scene = loadFixture("fingers.png");
+        if (!scene.isAllocated()) return;
+        ofPixels strip = scene;
+        strip.crop(0, 60, 320, 120);
+        const std::vector<std::pair<std::string, ofPixels>> frames = {{"fingers.png", scene},
+                                                                      {"fingers.png 320x120", strip}};
+        for (const auto& [name, frame] : frames) {
+            const int reference = patchCount(AdaptiveMaker().make(frame));
+            ofPixels big = scaled(frame, 4);
+            uint64_t start = ofGetElapsedTimeMicros();
+            Mosaic mosaic = AdaptiveMaker().make(big);
+            const double ms = (ofGetElapsedTimeMicros() - start) / 1000.0;
+            const int patches = patchCount(mosaic);
+            ofLogNotice("adaptive") << name << ": " << reference << " Patches at " << frame.getWidth() << "x"
+                                    << frame.getHeight() << ", " << patches << " Patches and "
+                                    << mosaic.tessels.size() << " Tessels at " << big.getWidth() << "x"
+                                    << big.getHeight() << " in " << ofToString(ms, 0) << " ms";
+            ofxTest(std::abs(patches - reference) <= reference / 4,
+                    "adaptive: " + name + " upscaled x4 gives as many Patches, within 25%");
+            ofxTest(coversFrame(mosaic, big.getWidth(), big.getHeight()), "adaptive: Tessels tile " + name + " x4");
+            ofxTestEq(contourCrossings(mosaic), 0, "adaptive: no Tessel edge crosses a Contour on " + name + " x4");
+        }
     }
 };
 
