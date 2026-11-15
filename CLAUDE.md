@@ -16,7 +16,20 @@ The project must live at `<OF_ROOT>/apps/myApps/hipsterismo`, because the `Makef
 
 Tests for the Mosaic module and the command-line parser live in `tests/`, a windowless OF app built with `ofxUnitTests`. Run them with `make -C tests && make -C tests run`; the process exit code is the number of failed tests. There is no way to run a single test; comment out calls in `run()` in `tests/src/main.cpp`. There is no linter.
 
-The OF-free adaptive core (`src/mosaic/core/`) has its own test executable in `tests/core/`, built with plain CMake and no openFrameworks or OpenCV (it needs only zlib): `cmake -S tests/core -B tests/core/build && cmake --build tests/core/build -j && tests/core/build/core_tests`. The exit code is the number of failed checks. It checks `sizesFor`, that the Tessels tile the Frame, that every Patch is 4-connected and reaches the min (from `segment()`'s labels), that no fallback warning is logged, and the adaptive golden hashes of the three fixtures in `tests/fixtures/` (`fingers.png`'s is the OF suite's adaptive golden). It reads the PNGs with its own small zlib decoder (`tests/core/Png.cpp`), so it doesn't need OpenCV's imgcodecs; an optional argument names another fixtures folder. Each hash is printed as a `hash <fixture> 0x…` line. To check another compiler, build into a second folder with `-DCMAKE_CXX_COMPILER=<sdk>/ndk/<version>/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++` (the NDK's host clang, against the system libstdc++): the output must be identical to GCC's. `.gitignore` ignores `tests/core/build*/`. The OF suite, which still links OpenCV, is the oracle for the core's step 1: `testAdaptiveLabMatchesOpenCV` checks `labOf()` against `cv::cvtColor` on all 2²⁴ colours (about a second), and `testAdaptiveKernelMatchesOpenCV` checks `gaussianKernel()` and `gaussianTaps()` against `cv::getGaussianKernel` at the σ of every Frame size up to 4096 px.
+The OF-free adaptive core (`src/mosaic/core/`) has its own test executable in `tests/core/`, built with plain CMake and no openFrameworks or OpenCV (it needs only zlib): `cmake -S tests/core -B tests/core/build && cmake --build tests/core/build -j && tests/core/build/core_tests`. The exit code is the number of failed checks. It checks `sizesFor`, that the Tessels tile the Frame, that every Patch is 4-connected and reaches the min (from `segment()`'s labels), that no fallback warning is logged, and the adaptive golden hashes of the three fixtures in `tests/fixtures/` (`fingers.png`'s is the OF suite's adaptive golden). It reads the PNGs with its own small zlib decoder (`tests/core/Png.cpp`), so it doesn't need OpenCV's imgcodecs; an optional argument names another fixtures folder. Each hash is printed as a `hash <fixture> 0x…` line. To check another compiler, build into a second folder with `-DCMAKE_CXX_COMPILER=<sdk>/ndk/<version>/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++` (the NDK's host clang, against the system libstdc++): the output must be identical to GCC's. To check the Pixel 8a (adb in `~/Android/Sdk/platform-tools/`), cross-compile with the SDK's CMake and the NDK toolchain, push the binary and the fixtures, and diff its output with the desktop's:
+
+```sh
+~/Android/Sdk/cmake/3.31.6/bin/cmake -S tests/core -B tests/core/build-android \
+  -DCMAKE_TOOLCHAIN_FILE=~/Android/Sdk/ndk/<version>/build/cmake/android.toolchain.cmake \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static
+~/Android/Sdk/cmake/3.31.6/bin/cmake --build tests/core/build-android -j
+adb shell mkdir -p /data/local/tmp/hipsterismo-core/fixtures
+adb push tests/core/build-android/core_tests /data/local/tmp/hipsterismo-core/
+adb push tests/fixtures/*.png /data/local/tmp/hipsterismo-core/fixtures/
+adb shell 'cd /data/local/tmp/hipsterismo-core && ./core_tests fixtures' | diff - <(tests/core/build/core_tests)
+```
+
+`.gitignore` ignores `tests/core/build*/`. The OF suite, which still links OpenCV, is the oracle for the core's step 1: `testAdaptiveLabMatchesOpenCV` checks `labOf()` against `cv::cvtColor` on all 2²⁴ colours (about a second), and `testAdaptiveKernelMatchesOpenCV` checks `gaussianKernel()` and `gaussianTaps()` against `cv::getGaussianKernel` at the σ of every Frame size up to 4096 px.
 
 ### Addon dependencies
 
