@@ -1,8 +1,8 @@
 diff --git a/libs/Delaunay/src/Delaunay.cpp b/libs/Delaunay/src/Delaunay.cpp
-index eaa7b39..ff57f4c 100755
+index eaa7b39..c479fde 100755
 --- a/libs/Delaunay/src/Delaunay.cpp
 +++ b/libs/Delaunay/src/Delaunay.cpp
-@@ -62,6 +62,33 @@
+@@ -62,6 +62,116 @@
      return((drsqr <= rsqr) ? true : false);
  }
  
@@ -33,44 +33,135 @@ index eaa7b39..ff57f4c 100755
 +    return (orient > 0) ? det >= 0 : det <= 0;
 +}
 +
++////////////////////////////////////////////////////////////////////////
++// SymbolicInCircle() :
++//   The in-circle test for a triangle with supertriangle vertices, which
++//   are treated as points at infinity. Supertriangle vertex k is
++//   superC[k] + R * superD[k] for R -> infinity (upstream's shape, with
++//   R = 20 * dmax). Each coordinate is a polynomial in R, so the
++//   orientation and the in-circle determinant are too, and their signs as
++//   R -> infinity are the signs of their leading nonzero coefficients.
++//   This is the exact answer for every large enough R, so the
++//   triangulation is that of the points plus a real supertriangle: no
++//   rounded decision near the hull can make the cavity not star-shaped,
++//   and no triangle of real points is lost because its circumcircle
++//   reaches a supertriangle vertex. The coefficients are sums of
++//   products of coordinate differences, like InCircle()'s determinant.
++////////////////////////////////////////////////////////////////////////
++
++namespace {
++
++// a polynomial in R, c[k] being the coefficient of R^k
++struct Poly {
++    double c[5];
++};
++
++Poly poly(double c0, double c1){
++    Poly p = {{c0, c1, 0, 0, 0}};
++    return p;
++}
++
++Poly operator+(const Poly &a, const Poly &b){
++    Poly p;
++    for(int k = 0; k < 5; k++) p.c[k] = a.c[k] + b.c[k];
++    return p;
++}
++
++Poly operator-(const Poly &a, const Poly &b){
++    Poly p;
++    for(int k = 0; k < 5; k++) p.c[k] = a.c[k] - b.c[k];
++    return p;
++}
++
++// The degrees used here never exceed 4.
++Poly operator*(const Poly &a, const Poly &b){
++    Poly p = {{0, 0, 0, 0, 0}};
++    for(int i = 0; i < 5; i++)
++        for(int j = 0; i + j < 5; j++)
++            p.c[i + j] += a.c[i] * b.c[j];
++    return p;
++}
++
++int signAtInfinity(const Poly &p){
++    for(int k = 4; k >= 0; k--){
++        if(p.c[k] > 0) return 1;
++        if(p.c[k] < 0) return -1;
++    }
++    return 0;
++}
++
++}
++
++static bool SymbolicInCircle(double xp, double yp, const int idx[3], int nv,
++const XYZ pxyz[], const double superC[3][2], const int superD[3][2]){
++    Poly x[3], y[3];
++    for(int k = 0; k < 3; k++){
++        if(idx[k] < nv){
++            x[k] = poly(pxyz[idx[k]].x - xp, 0);
++            y[k] = poly(pxyz[idx[k]].y - yp, 0);
++        }else{
++            int s = idx[k] - nv;
++            x[k] = poly(superC[s][0] - xp, superD[s][0]);
++            y[k] = poly(superC[s][1] - yp, superD[s][1]);
++        }
++    }
++    int orient = signAtInfinity((x[1] - x[0]) * (y[2] - y[0]) - (y[1] - y[0]) * (x[2] - x[0]));
++    if(orient == 0)
++        return false;
++    Poly lift[3];
++    for(int k = 0; k < 3; k++) lift[k] = x[k] * x[k] + y[k] * y[k];
++    int det = signAtInfinity(x[0] * (y[1] * lift[2] - y[2] * lift[1])
++                           - y[0] * (x[1] * lift[2] - x[2] * lift[1])
++                           + lift[0] * (x[1] * y[2] - x[2] * y[1]));
++    return (orient > 0) ? det >= 0 : det <= 0;
++}
++
  ///////////////////////////////////////////////////////////////////////////////
  // Triangulate() :
  //   Triangulation subroutine
-@@ -119,13 +146,17 @@
+@@ -91,7 +201,10 @@
+     double dx, dy, dmax;
+     
+     // Allocate memory for the completeness list, flag for each triangle
+-    trimax = 4 * nv;
++    // v holds 3 * nv triangles (see above). A triangulation of nv points and
++    // the supertriangle has at most 2 * nv + 1, so running out of room means
++    // a broken triangulation: stop rather than write past v.
++    trimax = 3 * nv;
+     complete = new int[trimax];
+     // Allocate memory for the edge list
+     edges = new IEDGE[emax];
+@@ -119,6 +232,10 @@
     // The supertriangle coordinates are added to the end of the
     // vertex list. The supertriangle is the first triangle in
     // the triangle list.
--    pxyz[nv+0].x = xmid - 20 * dmax;
-+   // It must be far larger than the points' extent: a triangle whose
-+   // circumcircle reaches a supertriangle vertex is dropped with it, so the
-+   // original factor of 20 loses flat triangles along the convex hull.
-+    const double SUPER = 100000.0;
-+    pxyz[nv+0].x = xmid - SUPER * dmax;
++   // The predicates treat its vertices as points at infinity (see
++   // SymbolicInCircle()): these coordinates only fix their directions.
++    const double superC[3][2] = {{xmid, ymid - dmax}, {xmid, ymid}, {xmid, ymid - dmax}};
++    const int superD[3][2] = {{-1, 0}, {0, 1}, {1, 0}};
+     pxyz[nv+0].x = xmid - 20 * dmax;
      pxyz[nv+0].y = ymid - dmax;
      pxyz[nv+0].z = 0.0;
-     pxyz[nv+1].x = xmid;
--    pxyz[nv+1].y = ymid + 20 * dmax;
-+    pxyz[nv+1].y = ymid + SUPER * dmax;
-     pxyz[nv+1].z = 0.0;
--    pxyz[nv+2].x = xmid + 20 * dmax;
-+    pxyz[nv+2].x = xmid + SUPER * dmax;
-     pxyz[nv+2].y = ymid - dmax;
-     pxyz[nv+0].z = 0.0;
-     v[0].p1 = nv;
-@@ -155,11 +186,25 @@
+@@ -154,12 +271,32 @@
+             y2 = pxyz[v[j].p2].y;
              x3 = pxyz[v[j].p3].x;
              y3 = pxyz[v[j].p3].y;
-             inside = CircumCircle(xp, yp, x1, y1, x2, y2, x3, y3, xc, yc, r);
+-            inside = CircumCircle(xp, yp, x1, y1, x2, y2, x3, y3, xc, yc, r);
 +            // Points on one circle are common (any four corners of an
 +            // axis-aligned rectangle), and CircumCircle() can put such a
 +            // point inside one of the circle's triangles and outside
 +            // another: the cavity is then not star-shaped and the new
-+            // triangles overlap. Decide exactly between real points, and
-+            // keep CircumCircle() for the supertriangle's, whose huge
-+            // coordinates the determinant would not hold exactly.
++            // triangles overlap. Decide exactly instead: InCircle() between
++            // real points, SymbolicInCircle() with supertriangle vertices,
++            // whose circumcircles are too big for CircumCircle() to round.
 +            bool real = v[j].p1 < nv && v[j].p2 < nv && v[j].p3 < nv;
-+            if(real)
++            if(real){
++                CircumCircle(xp, yp, x1, y1, x2, y2, x3, y3, xc, yc, r);
 +                inside = InCircle(xp, yp, x1, y1, x2, y2, x3, y3);
++            }else{
++                int idx[3] = {v[j].p1, v[j].p2, v[j].p3};
++                inside = SymbolicInCircle(xp, yp, idx, nv, pxyz, superC, superD);
++            }
              //    if (xc + r < xp)
              
              // Suggested
@@ -79,8 +170,53 @@ index eaa7b39..ff57f4c 100755
 +            // r is the radius (CircumCircle returns sqrt(rsqr)): the triangle
 +            // is complete once xp is right of its circumcircle. A real
 +            // triangle keeps a margin for the rounded xc and r, so a later
-+            // point on its circle still meets InCircle().
-+            if (xc < xp && (xp-xc) > r + (real ? EPSILON : 0))
++            // point on its circle still meets InCircle(). A triangle with a
++            // supertriangle vertex has an infinite circumcircle and is never
++            // complete.
++            if (real && xc < xp && (xp-xc) > r + EPSILON)
                  complete[j] = true;
              
              if(inside){
+@@ -217,6 +354,7 @@
+                 continue;
+ 
+             if (ntri >= trimax) {
++                status = 1;
+                 break;
+             }
+             
+@@ -227,7 +365,7 @@
+             ntri++;
+         }
+         
+-        if (ntri >= trimax) {
++        if (status != 0) {
+             break;
+         }
+     }
+@@ -244,7 +382,9 @@
+     
+     delete[] edges;
+     delete[] complete;
+-    return 0;
++    if (status != 0)
++        ntri = 0;
++    return status;
+ }
+ 
+ int XYZCompare(const void *v1, const void *v2){
+diff --git a/src/ofxDelaunay.cpp b/src/ofxDelaunay.cpp
+index 9af0705..d4745cc 100755
+--- a/src/ofxDelaunay.cpp
++++ b/src/ofxDelaunay.cpp
+@@ -83,7 +83,9 @@
+     //allocate space for triangle indices
+     triangles.resize(3*nv);
+     
+-	Triangulate( nv, &verticesXYZ[0], &triangles[0], ntri );
++	if( Triangulate( nv, &verticesXYZ[0], &triangles[0], ntri ) != 0 ){
++		ofLogError("ofxDelaunay") << "triangulation of " << nv << " points failed: no triangles";
++	}
+ 	
+ 	//copy triangle data to ofxDelaunayTriangle.
+ 	triangleMesh.clear();
