@@ -40,6 +40,10 @@ Sizes sizesFor(int width, int height, int minPatchArea);
 //    colours in the unblurred Frame are exactly equal (strips the blur alone
 //    split off a sharp edge). Then merge 4-neighbouring Patches, cheapest Ward
 //    cost first, until every Patch has at least the scaled min patch area.
+//    A Patch can still be pieces that touch only at a pixel corner: split
+//    every Patch into its 4-connected pieces and absorb each piece under the
+//    min into a neighbour, cheapest Ward cost first. Every Patch is then
+//    4-connected and has at least the min (unless the Frame is smaller).
 // 3. Trace the Patch boundaries along pixel edges ("cracks"), as chains
 //    between junctions shared by the Patches on either side. The outside of
 //    the Frame counts as a Patch, so the Frame border is traced too.
