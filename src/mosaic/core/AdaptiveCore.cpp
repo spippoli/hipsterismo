@@ -10,7 +10,6 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
-
 #include "CDT.h"
 
 namespace mosaic::core {
@@ -108,12 +107,21 @@ const uint8_t* pixel(const RgbImage& rgb, int x, int y) {
 
 // ------------------------------------------------------------ Lab Frame
 
-cv::Mat blurredLab(const RgbImage& rgb, float sigma) {
+// A float Lab Frame, three floats (L, a, b) per pixel, row by row.
+struct LabFrame {
+    int width = 0, height = 0;
+    std::vector<float> values;
+    const float* at(int i) const { return &values[size_t(i) * 3]; }
+};
+
+LabFrame blurredLab(const RgbImage& rgb, float sigma) {
     cv::Mat source(rgb.height, rgb.width, CV_8UC3, const_cast<uint8_t*>(rgb.data), size_t(rgb.stride)), unit, lab;
     source.convertTo(unit, CV_32F, 1.0 / 255);
     cv::cvtColor(unit, lab, cv::COLOR_RGB2Lab);
     cv::GaussianBlur(lab, lab, cv::Size(0, 0), sigma);
-    return lab;
+    LabFrame frame{rgb.width, rgb.height, {}};
+    frame.values.assign(lab.ptr<float>(), lab.ptr<float>() + size_t(rgb.width) * rgb.height * 3);
+    return frame;
 }
 
 // ------------------------------------------- Felzenszwalb–Huttenlocher
@@ -126,24 +134,28 @@ struct PixelEdge {
 // The edges from each pixel to its right, lower, lower-right and lower-left
 // neighbours, sorted by weight with a bucket sort (1/16 ΔE per bucket,
 // stable, so the order is deterministic).
-std::vector<PixelEdge> sortedEdges(const cv::Mat& lab) {
-    const int w = lab.cols, h = lab.rows;
+std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
+    const int w = lab.width, h = lab.height;
     std::vector<PixelEdge> edges;
     edges.reserve(size_t(w) * h * 4);
-    auto distance = [](const cv::Vec3f& p, const cv::Vec3f& q) {
-        cv::Vec3f d = p - q;
-        return std::sqrt(d.dot(d));
+    // The Euclidean distance, summed from 0 in channel order.
+    auto distance = [&](int i, int j) {
+        const float *p = lab.at(i), *q = lab.at(j);
+        float s = 0;
+        for (int c = 0; c < 3; c++) {
+            const float d = p[c] - q[c];
+            s += d * d;
+        }
+        return std::sqrt(s);
     };
     for (int y = 0; y < h; y++) {
-        const cv::Vec3f* row = lab.ptr<cv::Vec3f>(y);
-        const cv::Vec3f* below = y + 1 < h ? lab.ptr<cv::Vec3f>(y + 1) : nullptr;
         for (int x = 0; x < w; x++) {
             const int i = y * w + x;
-            if (x + 1 < w) edges.push_back({i, i + 1, distance(row[x], row[x + 1])});
-            if (below) {
-                edges.push_back({i, i + w, distance(row[x], below[x])});
-                if (x + 1 < w) edges.push_back({i, i + w + 1, distance(row[x], below[x + 1])});
-                if (x > 0) edges.push_back({i, i + w - 1, distance(row[x], below[x - 1])});
+            if (x + 1 < w) edges.push_back({i, i + 1, distance(i, i + 1)});
+            if (y + 1 < h) {
+                edges.push_back({i, i + w, distance(i, i + w)});
+                if (x + 1 < w) edges.push_back({i, i + w + 1, distance(i, i + w + 1)});
+                if (x > 0) edges.push_back({i, i + w - 1, distance(i, i + w - 1)});
             }
         }
     }
@@ -160,8 +172,8 @@ std::vector<PixelEdge> sortedEdges(const cv::Mat& lab) {
 // Over-segmentation: joins two components when the edge between them is no
 // heavier than either one's internal difference plus k / size. Min size 1,
 // so there is no small-component pass. Returns a label per pixel, 0..count-1.
-std::vector<int> felzenszwalb(const cv::Mat& lab, int& count) {
-    const int n = lab.cols * lab.rows;
+std::vector<int> felzenszwalb(const LabFrame& lab, int& count) {
+    const int n = lab.width * lab.height;
     DisjointSets sets(n);
     std::vector<float> threshold(n, segmentationK);
     for (const PixelEdge& e : sortedEdges(lab)) {
@@ -262,17 +274,14 @@ int splitIntoPieces(std::vector<int>& label, int w, int h) {
 // only merges that involve a Patch under `minArea` count: the small ones are
 // absorbed into a neighbour and the others stay as they are. Relabels in
 // place, 0..count-1 in scan order, and returns the new count.
-int wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minArea, bool onlySmall) {
-    const int w = lab.cols, h = lab.rows;
+int wardMerge(const LabFrame& lab, std::vector<int>& label, int count, int minArea, bool onlySmall) {
+    const int w = lab.width, h = lab.height;
     std::vector<double> n(count, 0);
-    std::vector<cv::Vec3d> sum(count, cv::Vec3d(0, 0, 0));
-    for (int y = 0; y < h; y++) {
-        const cv::Vec3f* row = lab.ptr<cv::Vec3f>(y);
-        for (int x = 0; x < w; x++) {
-            int r = label[y * w + x];
-            n[r] += 1;
-            sum[r] += cv::Vec3d(row[x]);
-        }
+    std::vector<std::array<double, 3>> sum(count, {0, 0, 0});
+    for (int i = 0; i < w * h; i++) {
+        const int r = label[i];
+        n[r] += 1;
+        for (int c = 0; c < 3; c++) sum[r][c] += double(lab.at(i)[c]);
     }
 
     std::vector<std::vector<int>> neighbours(count);
@@ -290,9 +299,16 @@ int wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minAre
             return a != o.a ? a > o.a : b > o.b;
         }
     };
+    // The means as sum * (1 / n), and the squared distance summed from 0 in
+    // channel order.
     auto cost = [&](int a, int b) {
-        cv::Vec3d d = sum[a] / n[a] - sum[b] / n[b];
-        return n[a] * n[b] / (n[a] + n[b]) * d.dot(d);
+        const double ia = 1. / n[a], ib = 1. / n[b];
+        double d2 = 0;
+        for (int c = 0; c < 3; c++) {
+            const double d = sum[a][c] * ia - sum[b][c] * ib;
+            d2 += d * d;
+        }
+        return n[a] * n[b] / (n[a] + n[b]) * d2;
     };
     std::priority_queue<Candidate, std::vector<Candidate>, std::greater<Candidate>> queue;
     for (int a = 0; a < count; a++) {
@@ -316,7 +332,7 @@ int wardMerge(const cv::Mat& lab, std::vector<int>& label, int count, int minAre
         small -= (n[c.a] < minArea) + (n[c.b] < minArea);
         int root = sets.unite(c.a, c.b), other = root == c.a ? c.b : c.a;
         n[root] += n[other];
-        sum[root] += sum[other];
+        for (int c = 0; c < 3; c++) sum[root][c] += sum[other][c];
         small += n[root] < minArea;
         version[root]++;
         merge++;
@@ -735,7 +751,7 @@ Rgb meanColour(const RgbImage& rgb, std::array<DVec, 3> t) {
 // Steps 1 and 2, keeping the Lab Frame out of the public interface.
 Segmentation segmentWith(const RgbImage& rgb, const Sizes& sizes) {
     const int w = rgb.width, h = rgb.height;
-    cv::Mat lab = blurredLab(rgb, sizes.blurSigma);
+    const LabFrame lab = blurredLab(rgb, sizes.blurSigma);
     Segmentation segmentation;
     int& count = segmentation.count;
     std::vector<int>& label = segmentation.label;
