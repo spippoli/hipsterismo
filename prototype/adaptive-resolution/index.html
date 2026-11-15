@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Resolution Prototype</title>
+<style>
+  :root { --bg:#f6f6f4; --fg:#1d1d1b; --muted:#6b6b66; --panel:#ffffff; --line:#d9d9d4; --accent:#c2410c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --panel:#1f1f1e; --line:#33332f; --accent:#fb923c; } }
+  :root[data-theme="dark"] { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --panel:#1f1f1e; --line:#33332f; --accent:#fb923c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; padding:16px; }
+  h1 { font-size:17px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:20px 0 8px; }
+  .note { color:var(--muted); margin:0 0 12px; max-width:80ch; }
+  .bar { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin:0 0 12px; }
+  button { font:inherit; padding:4px 9px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 420px), 1fr)); gap:12px; }
+  figure { margin:0; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:8px; min-width:0; }
+  figure img { width:100%; height:auto; display:block; border-radius:4px; cursor:zoom-in; }
+  figure.zoom img { cursor:zoom-out; }
+  figure.zoom { grid-column:1 / -1; }
+  figcaption { font-size:12px; color:var(--muted); margin-top:6px; font-variant-numeric:tabular-nums; }
+  figcaption b { color:var(--fg); }
+  .scroll { overflow-x:auto; }
+  table { border-collapse:collapse; font-size:12px; font-variant-numeric:tabular-nums; background:var(--panel); }
+  th, td { border:1px solid var(--line); padding:3px 7px; text-align:right; white-space:nowrap; }
+  th:nth-child(-n+2), td:nth-child(-n+2) { text-align:left; }
+  .err { color:var(--accent); }
+</style>
+</head>
+<body>
+<h1>PROTOTYPE · adaptive a risoluzioni da still mode (ε e min patch area)</h1>
+<p class="note">Codice usa e getta per il ticket #22. Pipeline scelta in #16/#20: Ward finché nessuna Patch è sotto min, bordi semplificati con ε, una CDT, nessun max, colore = media dei pixel.
+Confronta il riferimento 320×240 con lo stesso Frame ingrandito 4× (1280×960: area ×16, lato ×4) e con una foto vera 1024×680 (area ×9,1, lato ×2,83).
+«abs» tiene i valori assoluti; «min-only» scala min con l'area; «eps-only» scala ε col lato; «min-eps» scala entrambi; «all» scala anche la sfocatura interna (σ 0,8).
+Le immagini della foto (esempio di openFrameworks) non sono nel repo: <code>make</code> in questa cartella le genera. Clic su un'immagine per ingrandirla.</p>
+
+<div class="bar" id="view"></div>
+<div id="sections"></div>
+<h2>Misure</h2>
+<div class="scroll"><table id="tbl"></table></div>
+
+<script>
+const SETS = [
+  { title: "fingers 320×240 (riferimento) e ingrandito 4× a 1280×960", items: [
+    ["f1", "ref", "320×240 · min 32 · ε 3"],
+    ["f4", "abs", "1280×960 · min 32 · ε 3 (assoluti)"],
+    ["f4", "min-only", "min 512 (×16) · ε 3"],
+    ["f4", "eps-only", "min 32 · ε 12 (×4)"],
+    ["f4", "min-eps", "min 512 · ε 12"],
+    ["f4", "all", "min 512 · ε 12 · σ 3,2"],
+    ["f4", "min8", "min 8 · ε 3"],
+    ["f4", "min128", "min 128 · ε 3"],
+    ["f4", "min1024", "min 1024 (tetto del cursore) · ε 3"],
+  ]},
+  { title: "foto 1024×680 (non nel repo: make la genera)", items: [
+    ["p1", "ref", "ridotta a 320×212 · min 32 · ε 3"],
+    ["p3", "abs", "1024×680 · min 32 · ε 3 (assoluti)"],
+    ["p3", "min-only", "min 290 (×9,1) · ε 3"],
+    ["p3", "min-eps", "min 290 · ε 8,5 (×2,83)"],
+    ["p3", "all", "min 290 · ε 8,5 · σ 2,27"],
+    ["p3", "min1024", "min 1024 (tetto del cursore) · ε 3"],
+  ]},
+];
+const VIEWS = { "": "Mosaico", "-wire": "wireframe + bordi Patch", "source": "sorgente" };
+let view = "";
+let stats = {};
+
+function render() {
+  const bar = document.getElementById("view");
+  bar.innerHTML = "";
+  for (const [v, label] of Object.entries(VIEWS)) {
+    const b = document.createElement("button");
+    b.textContent = label; b.className = v === view ? "on" : "";
+    b.onclick = () => { view = v; render(); };
+    bar.appendChild(b);
+  }
+  const root = document.getElementById("sections");
+  root.innerHTML = "";
+  for (const set of SETS) {
+    const h = document.createElement("h2"); h.textContent = set.title; root.appendChild(h);
+    const grid = document.createElement("div"); grid.className = "grid"; root.appendChild(grid);
+    for (const [prefix, name, label] of set.items) {
+      const fig = document.createElement("figure");
+      const img = document.createElement("img");
+      img.src = view === "source" ? `out/${prefix}-source.png` : `out/${prefix}-${name}${view}.png`;
+      img.alt = label;
+      img.onerror = () => { fig.innerHTML = `<figcaption class="err">manca ${img.src}: esegui make</figcaption>`; };
+      img.onclick = () => fig.classList.toggle("zoom");
+      const s = stats[prefix + "/" + name];
+      const cap = document.createElement("figcaption");
+      cap.innerHTML = `<b>${prefix}-${name}</b> · ${label}` + (s ? `<br>${s.patches} Patch · ${s.tessels} Tessel · mediana ${s.median} px² · ${s.ms} ms` : "");
+      fig.append(img, cap); grid.appendChild(fig);
+    }
+  }
+}
+</script>
+<script src="out/stats.js" onerror="render()"></script>
+<script>
+if (window.STATS) {
+  const cols = ["set", "name", "W", "H", "min", "ε", "σ", "init", "patches", "tessels", "median", "max", "lastΔE", "smallest", "ms"];
+  const head = ["set", "config", "W", "H", "min", "ε", "σ blur", "regioni iniziali", "Patch", "Tessel", "mediana px²", "Tessel max px²", "ultimo merge ΔE", "Patch più piccola px²", "ms per Frame"];
+  const tbl = document.getElementById("tbl");
+  tbl.innerHTML = "<tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr>" +
+    STATS.map(r => "<tr>" + r.map(c => `<td>${c}</td>`).join("") + "</tr>").join("");
+  for (const r of STATS) stats[r[0] + "/" + r[1]] = { patches: r[8], tessels: r[9], median: r[10], ms: r[14] };
+}
+render();
+</script>
+</body>
+</html>
