@@ -1,61 +1,94 @@
 package io.github.spippoli.hipsterismo
 
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
-import android.os.SystemClock
-import android.util.Log
+import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
-/** The skeleton's only screen: the adaptive Mosaic of the bundled fingers.png. */
+/**
+ * The app opens on the camera screen. Without the CAMERA permission it asks
+ * once, and while the permission is denied it shows why it is needed.
+ *
+ * The activity handles rotation itself (`configChanges`), so the camera keeps
+ * running and the layout switches between portrait and landscape.
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        val previewView = PreviewView(this).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
         setContent {
-            var mosaic by remember { mutableStateOf<Mosaic?>(null) }
-            LaunchedEffect(Unit) {
-                mosaic = withContext(Dispatchers.Default) { fixtureMosaic(FRAME) }
+            var granted by remember { mutableStateOf(hasCamera()) }
+            var denied by rememberSaveable { mutableStateOf(false) }
+            var refusals by rememberSaveable { mutableIntStateOf(0) }
+            val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+                granted = ok
+                denied = !ok
+                if (!ok) refusals++
             }
-            Box(Modifier.fillMaxSize().background(Color.Black)) {
-                mosaic?.let { MosaicCanvas(it, Modifier.fillMaxSize()) }
+            // After a refusal Android shows the request again while the
+            // rationale flag is set; after the second (or a dismissed dialog
+            // and a refusal) only the settings can grant it.
+            val canAsk = refusals < 2 || shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+            LaunchedEffect(Unit) {
+                if (!granted && !denied) request.launch(Manifest.permission.CAMERA)
+            }
+            // Back from the settings, or the permission revoked meanwhile.
+            DisposableEffect(Unit) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) granted = hasCamera()
+                }
+                lifecycle.addObserver(observer)
+                onDispose { lifecycle.removeObserver(observer) }
+            }
+
+            when {
+                granted -> {
+                    val pipeline = remember { PreviewPipeline(this) }
+                    DisposableEffect(pipeline) {
+                        pipeline.start(this@MainActivity, previewView.surfaceProvider)
+                        onDispose { pipeline.stop() }
+                    }
+                    CameraScreen(pipeline, previewView)
+                }
+                denied -> PermissionScreen(canAsk) {
+                    if (canAsk) request.launch(Manifest.permission.CAMERA) else openAppSettings()
+                }
+                else -> Box(Modifier.fillMaxSize().background(PanelDark))
             }
         }
     }
 
-    private fun fixtureMosaic(name: String): Mosaic {
-        val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 }
-        val frame = assets.open(name).use { BitmapFactory.decodeStream(it, null, options) }
-            ?: error("cannot decode $name")
-        val start = SystemClock.elapsedRealtimeNanos()
-        val mosaic = NativeMosaic.fromBitmap(frame)
-        val ms = (SystemClock.elapsedRealtimeNanos() - start) / 1e6
-        Log.i(
-            TAG,
-            "%s %dx%d: %d Tessels, hash 0x%016x, %.1f ms".format(
-                name, mosaic.width, mosaic.height, mosaic.tesselCount, mosaic.hash, ms,
-            ),
-        )
-        frame.recycle()
-        return mosaic
-    }
+    private fun hasCamera() = checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
-    private companion object {
-        const val TAG = "hipsterismo"
-        const val FRAME = "fingers.png"
+    private fun openAppSettings() {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+        )
     }
 }
