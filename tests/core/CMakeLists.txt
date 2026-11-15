@@ -23,14 +23,9 @@ set(CORE ${REPO}/src/mosaic/core)
 
 find_package(ZLIB REQUIRED)
 
-# The core, with only its own folder and CDT on the include path and no
-# library: an openFrameworks, glm or OpenCV include would fail to compile.
-add_library(adaptive_core STATIC ${CORE}/AdaptiveCore.cpp ${CORE}/AdaptiveLab.cpp)
-target_include_directories(adaptive_core PUBLIC ${CORE})
-target_include_directories(adaptive_core SYSTEM PRIVATE ${REPO}/src/mosaic/CDT)
-# No fused multiply-adds: clang contracts a*b+c by default where the target
-# has FMA (arm64), which would change the floats and the hashes.
-target_compile_options(adaptive_core PRIVATE -Wall -Wextra -ffp-contract=off)
+# The core's library, with the flags that keep its floats identical
+# (-ffp-contract=off), shared with the Android app.
+add_subdirectory(${CORE} core)
 
 add_executable(core_tests main.cpp Png.cpp)
 target_link_libraries(core_tests PRIVATE adaptive_core ZLIB::ZLIB)
