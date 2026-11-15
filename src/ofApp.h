@@ -46,6 +46,17 @@ class ofApp : public ofBaseApp{
         ofParameter<std::string> vertexModeName;
         ofxLabel vertexModeLabel;
         ofEventListener vertexModeListener;
+        // The panel shows only the active vertex mode's parameters. A mode
+        // change sets panelDirty, and update() rebuilds the panel: never
+        // from inside the listener, which may run during ofxGui's own
+        // mouse handling.
+        bool panelDirty = false;
+        void rebuildPanel();
+        // settings.xml holds every Mosaic parameter, shown or not, under
+        // <panel>. The panel's save and load buttons use these too.
+        bool saveSettings();
+        bool loadSettings();
+        ofEventListeners settingsListeners;
 #ifdef LIVE_INPUT
 #ifdef TARGET_LINUX
         // ofVideoGrabber (OF 0.12.1) picks the DMABuf caps that GStreamer >= 1.24
