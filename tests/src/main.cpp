@@ -592,7 +592,10 @@ class ofApp : public ofxUnitTestsApp {
 
     // Spline mode must keep reproducing its output exactly. The hash was
     // recorded from the spline Mosaic of fingers.png before vertex mode
-    // replaced stable vertices (#27); a change here changes the look.
+    // replaced stable vertices (#27); a change here changes the look. It
+    // was re-recorded once, for #39: the exact in-circle test picks the
+    // other diagonal of one cocircular quad, (143.5,160) (144,160)
+    // (143.5,166) (146,165).
     void testSplineGolden() {
         ofPixels scene = loadFixture("fingers.png");
         ofxTest(scene.isAllocated(), "fixture fingers.png loads");
@@ -601,7 +604,7 @@ class ofApp : public ofxUnitTestsApp {
         Mosaic mosaic = MosaicMaker().make(scene);
         const uint64_t hash = mosaicHash(mosaic);
         ofLogNotice("golden") << mosaic.tessels.size() << " Tessels, hash 0x" << ofToHex(hash);
-        ofxTestEq(hash, uint64_t(0x6fa697f1ffa56c72ull), "spline Mosaic of fingers.png matches the golden hash");
+        ofxTestEq(hash, uint64_t(0xcd1a4ddfcf14321bull), "spline Mosaic of fingers.png matches the golden hash");
     }
 
     void testVertexMode() {
