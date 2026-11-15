@@ -1224,12 +1224,13 @@ class ofApp : public ofxUnitTestsApp {
                 "sizes: sigma and epsilon stay positive on a 1x1 Frame");
     }
 
-    // `frame` resized by `factor` with bilinear interpolation.
+    // `frame` resized by `factor` with bilinear interpolation. The pixels are
+    // copied: ofxCv::toOf() only points them at the cv::Mat, which dies here.
     static ofPixels scaled(const ofPixels& frame, int factor) {
         cv::Mat big;
         cv::resize(ofxCv::toCv(frame), big, cv::Size(), factor, factor, cv::INTER_LINEAR);
         ofPixels result;
-        ofxCv::toOf(big, result);
+        result.setFromPixels(big.ptr<unsigned char>(), big.cols, big.rows, big.channels());
         return result;
     }
 
