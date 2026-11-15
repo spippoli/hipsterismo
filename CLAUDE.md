@@ -29,7 +29,7 @@ git clone https://github.com/memo/ofxMSAInterpolator.git
 git -C ofxDelaunay apply <path-to-this-app>/patches/ofxDelaunay-hull-triangles.patch
 ```
 
-The patch fixes two bugs in ofxDelaunay's triangulator. Its supertriangle is too small, so flat triangles along the convex hull (the Frame border) are dropped and leave holes. And it compares a squared distance with the circumradius when retiring triangles; that one has not been seen to change a result with glibc's `qsort`, but it can with another tie order between equal-x points. The tests in `tests/` fail without the patch. Upstream is unmaintained and the code has no free licence, so the fix ships as a patch rather than as a fork or vendored copy.
+The patch fixes three bugs in ofxDelaunay's triangulator. Its supertriangle is too small, so flat triangles along the convex hull (the Frame border) are dropped and leave holes. Its in-circle test rounds a circumcentre, so a point on a circle through four or more half-pixel points (any axis-aligned rectangle's corners) can count as inside one of that circle's triangles and outside another; the new triangles then overlap (#39). The patch decides triangles of real points with the exact sign of the in-circle determinant (on the circle counts as inside), exact for half-pixel coordinates up to about 2600. And it compares a squared distance with the circumradius when retiring triangles; that one has not been seen to change a result with glibc's `qsort`, but it can with another tie order between equal-x points. The tests in `tests/` fail without the patch. Upstream is unmaintained and the code has no free licence, so the fix ships as a patch rather than as a fork or vendored copy.
 
 ### openFrameworks version
 
