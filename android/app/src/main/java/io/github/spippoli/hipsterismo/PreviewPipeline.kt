@@ -11,8 +11,11 @@ import android.os.SystemClock
 import android.util.Log
 import android.util.Size
 import android.view.Display
+import android.graphics.ImageDecoder
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
@@ -22,16 +25,22 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /**
- * The live preview: CameraX binds Preview (the raw camera, shown until the
- * first Mosaic) and ImageAnalysis (RGBA, 320×240, only the latest Frame
- * kept). One preview thread turns each analysis Frame into a Mosaic, rotated
- * upright and mirrored for the front camera, with an ADPF hint session asking
- * for a fast core. The latest Mosaic is [mosaic]; [coreMs] holds the core's
- * times of the last second.
+ * The live preview and the photos: CameraX binds Preview (the raw camera,
+ * shown until the first Mosaic), ImageAnalysis (RGBA, 320×240, only the
+ * latest Frame kept) and ImageCapture (the shutter's full-resolution JPEG).
+ * One thread turns each analysis Frame into a Mosaic, rotated upright and
+ * mirrored for the front camera, with an ADPF hint session asking for a fast
+ * core. The latest Mosaic is [mosaic]; [coreMs] holds the core's times of the
+ * last second.
+ *
+ * A photo ([takePhoto], [processPhoto]) runs on the same thread, with the
+ * preview [paused]: the thread whose hint keeps it on the X3 does the photo's
+ * decode and core, and no analysis Frame competes with it.
  */
 class PreviewPipeline(private val context: Context) {
     private val _mosaic = MutableStateFlow<Mosaic?>(null)
@@ -46,6 +55,14 @@ class PreviewPipeline(private val context: Context) {
     /** The `min patch area` of the next Frame; set from the UI thread. */
     @Volatile
     var minPatchArea: Int = MinPatchArea.DEFAULT
+
+    /**
+     * While true, analysis Frames are dropped unprocessed and [mosaic] keeps
+     * the last one: during a photo and on the result screen. Set from the UI
+     * thread.
+     */
+    @Volatile
+    var paused: Boolean = false
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
@@ -71,6 +88,18 @@ class PreviewPipeline(private val context: Context) {
         .build()
 
     private val preview = Preview.Builder()
+        .setResolutionSelector(
+            ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                .build(),
+        )
+        .build()
+
+    // The shutter's photo: the largest 4:3 size (CameraX's default for
+    // ImageCapture), latency over quality, saved as a JPEG with its EXIF
+    // orientation.
+    private val capture = ImageCapture.Builder()
+        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
         .setResolutionSelector(
             ResolutionSelector.Builder()
                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
@@ -108,7 +137,7 @@ class PreviewPipeline(private val context: Context) {
             }
             mirror = selector == CameraSelector.DEFAULT_FRONT_CAMERA
             cameras.unbindAll()
-            cameras.bindToLifecycle(owner, selector, preview, analysis)
+            cameras.bindToLifecycle(owner, selector, preview, analysis, capture)
         }, context.mainExecutor)
     }
 
@@ -127,10 +156,57 @@ class PreviewPipeline(private val context: Context) {
         val rotation = displayManager.getDisplay(Display.DEFAULT_DISPLAY)?.rotation ?: return
         analysis.targetRotation = rotation
         preview.targetRotation = rotation
+        capture.targetRotation = rotation
+    }
+
+    /**
+     * Takes a photo into [file] (a JPEG, upright through its EXIF
+     * orientation), then calls [onSaved] or [onError] on the pipeline's
+     * thread.
+     */
+    fun takePhoto(file: File, onSaved: () -> Unit, onError: (Exception) -> Unit) {
+        val options = ImageCapture.OutputFileOptions.Builder(file).build()
+        capture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) = onSaved()
+            override fun onError(exception: ImageCaptureException) = onError(exception)
+        })
+    }
+
+    /**
+     * Decodes [source] ([PhotoDecoder]: upright, capped at 2048) and makes its
+     * Mosaic at [minPatchArea], scaled to the photo's size by the core, on the
+     * pipeline's thread. [onDone] gets the Mosaic and the decode time in ms,
+     * [onError] what went wrong; both run on that thread.
+     */
+    fun processPhoto(
+        source: () -> ImageDecoder.Source,
+        minPatchArea: Int,
+        onDone: (mosaic: Mosaic, decodeMs: Double) -> Unit,
+        onError: (Exception) -> Unit,
+    ) = post {
+        try {
+            val start = System.nanoTime()
+            val bitmap = PhotoDecoder.decode(source())
+            val decodeMs = (System.nanoTime() - start) / 1e6
+            val mosaic = try {
+                NativeMosaic.fromBitmap(bitmap, minPatchArea)
+            } finally {
+                bitmap.recycle()
+            }
+            onDone(mosaic, decodeMs)
+        } catch (e: Exception) {
+            onError(e)
+        }
+    }
+
+    /** Runs [task] on the pipeline's thread, unless the pipeline has stopped. */
+    fun post(task: () -> Unit) {
+        if (!executor.isShutdown) executor.execute(task)
     }
 
     private fun analyze(image: ImageProxy) {
         image.use {
+            if (paused) return
             val start = System.nanoTime()
             val plane = image.planes[0]
             val transform = FrameTransform.of(
