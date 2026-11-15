@@ -33,8 +33,15 @@ inline int threadsFor(size_t pixels) {
 // cover 0..count-1, on `threads` threads (the caller is one of them); `slot`
 // (0..threads-1) names the thread, for per-thread scratch. Chunks are handed
 // out as threads ask for them, so a slow core takes fewer. If a thread can't
-// be started, the others do its share.
+// be started, the others do its share. With one thread, it is one call over
+// all the items.
 template <class Work> void parallelFor(int count, int grain, int threads, const Work& work) {
+    if (threads <= 1) {
+        // One call over everything: the chunked loop measurably slowed the
+        // Lab of a 320x240 Frame.
+        if (count > 0) work(0, count, 0);
+        return;
+    }
     grain = std::max(1, grain);
     const int chunks = (count + grain - 1) / grain;
     threads = std::clamp(threads, 1, std::max(1, chunks));
