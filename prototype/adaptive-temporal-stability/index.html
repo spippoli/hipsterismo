@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adaptive Stability Prototype</title>
+<style>
+  :root { --bg:#f6f6f4; --fg:#1d1d1b; --muted:#6b6b66; --panel:#ffffff; --line:#d9d9d4; --accent:#c2410c; --s1:#2563eb; --s2:#9a9a94; --s3:#16a34a; --s4:#c2410c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --panel:#1f1f1e; --line:#33332f; --accent:#fb923c; --s1:#60a5fa; --s2:#77776f; --s3:#4ade80; --s4:#fb923c; } }
+  :root[data-theme="dark"] { --bg:#161615; --fg:#ececea; --muted:#9a9a94; --panel:#1f1f1e; --line:#33332f; --accent:#fb923c; --s1:#60a5fa; --s2:#77776f; --s3:#4ade80; --s4:#fb923c; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; padding:16px; }
+  h1 { font-size:17px; margin:0 0 4px; }
+  .note { color:var(--muted); margin:0 0 14px; max-width:84ch; }
+  .bar { display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-bottom:12px; }
+  .seg { display:flex; gap:6px; flex-wrap:wrap; }
+  button { font:inherit; padding:4px 9px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--fg); cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  video { width:100%; max-width:1280px; display:block; border:1px solid var(--line); border-radius:4px; background:#000; image-rendering:pixelated; }
+  .cap { display:flex; max-width:1280px; color:var(--muted); font-size:12px; margin:4px 0 12px; }
+  .cap span { flex:1; }
+  canvas { width:100%; max-width:1280px; height:220px; display:block; background:var(--panel); border:1px solid var(--line); border-radius:6px; cursor:crosshair; }
+  .legend { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; color:var(--muted); margin:6px 0 12px; }
+  .legend i { display:inline-block; width:12px; height:3px; vertical-align:middle; margin-right:5px; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px; margin:0; font-size:12px; white-space:pre-wrap; max-width:1280px; }
+</style>
+</head>
+<body>
+<h1>PROTOTYPE · adaptive mode nel tempo: sfarfallio su fingers.mov</h1>
+<p class="note">Codice usa e getta per il ticket #23. Adaptive con le impostazioni scelte (Ward, min patch area 32, ε 3 px, niente max, colore = media dei pixel del triangolo), Frame per Frame da zero.
+<b>video</b>: i 219 Frame di <code>fingers.mov</code>. <b>rumore</b>: un solo Frame (il 109) ripetuto 90 volte con rumore gaussiano σ 3 per canale, come una webcam ferma.
+<b>levigato</b>: il rimedio provato, media esponenziale nel tempo del Frame in Lab (α 0.5) prima della segmentazione; i colori dei Tessel vengono sempre dal Frame originale.
+A sinistra la sorgente, a destra il Mosaico. Rigenera con <code>make</code> in questa cartella.</p>
+
+<div class="bar">
+  <div class="seg" id="seq"></div>
+  <div class="seg" id="var"></div>
+  <div class="seg">
+    <button id="prev">◀ Frame</button><button id="play">▶ play</button><button id="next">Frame ▶</button>
+    <button id="slow">velocità 1×</button>
+  </div>
+</div>
+<video id="v" muted loop playsinline preload="auto"></video>
+<div class="cap"><span>sorgente</span><span>Mosaico adaptive</span></div>
+<canvas id="chart"></canvas>
+<div class="legend">
+  <span><i style="background:var(--s1)"></i>pixel del Mosaico cambiati &gt; 6 ΔE dal Frame prima</span>
+  <span><i style="background:var(--s2)"></i>pixel della sorgente cambiati &gt; 6 ΔE</span>
+  <span><i style="background:var(--s3)"></i>vertici rimasti fermi (stable mode chiede ≥ 90% sotto rumore)</span>
+  <span><i style="background:var(--s4)"></i>numero di Patch (scala a destra, 0–250)</span>
+</div>
+<pre id="state"></pre>
+
+<script>var DATA = {};</script>
+<script src="data/metrics.js"></script>
+<script>
+const FPS = 30;
+const SEQS = { video: "video (219 Frame)", noise: "rumore su Frame fermo (90 Frame)" };
+const VARS = { raw: "grezzo", smooth: "levigato (α 0.5)" };
+const RATES = [1, 0.25, 0.1];
+const state = { seq: "video", variant: "raw", rate: 0 };
+const v = document.getElementById("v");
+
+function buttons(id, opts, field) {
+  const el = document.getElementById(id);
+  el.innerHTML = "";
+  for (const [k, label] of Object.entries(opts)) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.className = state[field] === k ? "on" : "";
+    b.onclick = () => { state[field] = k; load(); };
+    el.appendChild(b);
+  }
+}
+const rows = () => DATA[`${state.seq}-${state.variant}`] || [];
+const frame = () => Math.min(rows().length - 1, Math.max(0, Math.floor(v.currentTime * FPS + 0.01)));
+
+function load() {
+  buttons("seq", SEQS, "seq"); buttons("var", VARS, "variant");
+  const t = v.currentTime || 0, playing = !v.paused;
+  v.src = `data/${state.seq}-${state.variant}.mp4`;
+  v.playbackRate = RATES[state.rate];
+  v.onloadedmetadata = () => { v.currentTime = Math.min(t, v.duration - 0.01); v.playbackRate = RATES[state.rate]; if (playing) v.play(); };
+  render();
+}
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function summary(r) {
+  const rest = r.slice(1), mean = i => rest.reduce((s, x) => s + x[i], 0) / rest.length;
+  const p = r.map(x => x[0]);
+  return `media su ${r.length} Frame: Mosaico cambiato ${(100 * mean(2)).toFixed(1)}%, sorgente ${(100 * mean(3)).toFixed(1)}%, vertici fermi ${(100 * mean(4)).toFixed(1)}%, Patch da ${Math.min(...p)} a ${Math.max(...p)}`;
+}
+
+function render() {
+  const r = rows(); if (!r.length) return;
+  const cv = document.getElementById("chart"), dpr = window.devicePixelRatio || 1;
+  const Wc = cv.clientWidth, Hc = cv.clientHeight;
+  cv.width = Wc * dpr; cv.height = Hc * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const L = 36, R = 36, T = 8, B = 20, w = Wc - L - R, h = Hc - T - B;
+  const X = i => L + (r.length > 1 ? i / (r.length - 1) : 0) * w, Y = f => T + (1 - f) * h;
+  g.font = "11px system-ui"; g.fillStyle = css("--muted"); g.strokeStyle = css("--line"); g.lineWidth = 1;
+  for (const f of [0, 0.25, 0.5, 0.75, 1]) {
+    g.beginPath(); g.moveTo(L, Y(f)); g.lineTo(L + w, Y(f)); g.stroke();
+    g.textAlign = "right"; g.fillText(Math.round(f * 100) + "%", L - 4, Y(f) + 4);
+    g.textAlign = "left"; g.fillText(Math.round(f * 250), L + w + 4, Y(f) + 4);
+  }
+  const line = (col, get, from) => {
+    g.strokeStyle = css(col); g.lineWidth = 1.6; g.beginPath();
+    for (let i = from; i < r.length; i++) { const y = Y(get(r[i])); i === from ? g.moveTo(X(i), y) : g.lineTo(X(i), y); }
+    g.stroke();
+  };
+  line("--s2", x => x[3], 1); line("--s1", x => x[2], 1); line("--s3", x => x[4], 1); line("--s4", x => x[0] / 250, 0);
+  g.strokeStyle = css("--s3"); g.setLineDash([4, 4]); g.beginPath(); g.moveTo(L, Y(0.9)); g.lineTo(L + w, Y(0.9)); g.stroke(); g.setLineDash([]);
+  const i = frame();
+  g.strokeStyle = css("--fg"); g.beginPath(); g.moveTo(X(i), T); g.lineTo(X(i), T + h); g.stroke();
+  const c = r[i];
+  document.getElementById("state").textContent =
+`configurazione  ${state.seq}-${state.variant}   Frame ${i} / ${r.length - 1}
+Patch           ${c[0]}
+Tessel          ${c[1]}
+Mosaico         ${i ? (100 * c[2]).toFixed(1) + "% dei pixel cambiati > 6 ΔE dal Frame prima" : "—"}
+sorgente        ${i ? (100 * c[3]).toFixed(1) + "% dei pixel cambiati > 6 ΔE" : "—"}
+vertici fermi   ${i ? (100 * c[4]).toFixed(1) + "% dei vertici erano già nel Frame prima" : "—"}
+${summary(r)}`;
+}
+
+document.getElementById("play").onclick = () => v.paused ? v.play() : v.pause();
+v.onplay = () => document.getElementById("play").textContent = "❚❚ pausa";
+v.onpause = () => document.getElementById("play").textContent = "▶ play";
+const step = d => { v.pause(); v.currentTime = Math.min(v.duration - 0.01, Math.max(0, (frame() + d + 0.5) / FPS)); };
+document.getElementById("prev").onclick = () => step(-1);
+document.getElementById("next").onclick = () => step(1);
+document.getElementById("slow").onclick = e => { state.rate = (state.rate + 1) % RATES.length; v.playbackRate = RATES[state.rate]; e.target.textContent = `velocità ${RATES[state.rate]}×`; };
+document.getElementById("chart").onclick = e => { const cv = e.currentTarget, x = e.offsetX, L = 36, w = cv.clientWidth - 72; step(0); v.currentTime = (Math.round((x - L) / w * (rows().length - 1)) + 0.5) / FPS; };
+document.addEventListener("keydown", e => { if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1); else if (e.key === " ") { e.preventDefault(); v.paused ? v.play() : v.pause(); } });
+v.ontimeupdate = render; v.onseeked = render;
+window.onresize = render;
+(function tick() { if (!v.paused) render(); requestAnimationFrame(tick); })();
+load();
+</script>
+</body>
+</html>
