@@ -1,7 +1,8 @@
 // Tests of the openFrameworks-free adaptive core (src/mosaic/core/), built
 // with plain CMake: see CMakeLists.txt. The exit code is the number of
 // failed checks. An optional argument names the fixtures folder (default
-// tests/fixtures/ of the source tree). Every hash is printed as a "hash <fixture> 0x…" line, so
+// tests/fixtures/ of the source tree). Besides the PNG fixtures it hashes a
+// synthetic still of 2048 px, upscaled from fingers.png (photo sizes). Every hash is printed as a "hash <fixture> 0x…" line, so
 // the outputs of two builds (GCC and clang, desktop and phone) can be
 // diffed.
 
@@ -166,14 +167,8 @@ struct Fixture {
     uint64_t golden;
 };
 
-void testFixture(const Fixture& fixture) {
-    const std::string name = fixture.name;
-    RgbPixels frame;
-    std::string error;
-    if (!loadPng(fixtures + "/" + name, frame, error)) {
-        check(false, name + " loads: " + error);
-        return;
-    }
+// Checks one Frame's Mosaic against its golden hash and the invariants.
+void testFrame(const std::string& name, const RgbPixels& frame, uint64_t golden) {
     int warnings = 0;
     setLogHook([&](LogLevel, const std::string& message) {
         warnings++;
@@ -186,7 +181,7 @@ void testFixture(const Fixture& fixture) {
     std::printf("hash %s %s (%zu Tessels, %zu Contours, %d Patches)\n", name.c_str(), hex(h).c_str(),
                 mosaic.tessels.size(), mosaic.contours.size(), patches.count);
 
-    check(h == fixture.golden, name + ": matches the golden hash " + hex(fixture.golden));
+    check(h == golden, name + ": matches the golden hash " + hex(golden));
     check(tiles(mosaic, frame.width, frame.height), name + ": the Tessels tile the Frame");
     check(warnings == 0, name + ": the constrained triangulation logs no warning");
     std::string why;
@@ -194,6 +189,45 @@ void testFixture(const Fixture& fixture) {
     check(patchesWhole(patches, frame.width, frame.height, minArea, why),
           name + ": every Patch is 4-connected and reaches the min" + (why.empty() ? "" : " (" + why + ")"));
     check(hash(makeAdaptive(view(frame), 32)) == h, name + ": the Mosaic is a pure function of the Frame");
+}
+
+void testFixture(const Fixture& fixture) {
+    RgbPixels frame;
+    std::string error;
+    if (!loadPng(fixtures + "/" + fixture.name, frame, error)) {
+        check(false, std::string(fixture.name) + " loads: " + error);
+        return;
+    }
+    testFrame(fixture.name, frame, fixture.golden);
+}
+
+// `source` scaled to width x height, bilinear in integers (8-bit weights,
+// pixel centres aligned, edges clamped), so the still is the same on every
+// platform: a synthetic photo, never a user's.
+RgbPixels upscaled(const RgbPixels& source, int width, int height) {
+    RgbPixels out{width, height, std::vector<uint8_t>(size_t(width) * height * 3)};
+    // The source coordinate of a pixel centre, in 1/256 px, as an index and a weight.
+    auto at = [](int i, int from, int to, int& i0, int& i1, int& w) {
+        const int64_t s = std::max<int64_t>(0, (int64_t(2 * i + 1) * from - to) * 256 / (2 * int64_t(to)));
+        i0 = std::min(int(s >> 8), from - 1);
+        i1 = std::min(i0 + 1, from - 1);
+        w = int(s & 255);
+    };
+    for (int y = 0; y < height; y++) {
+        int y0, y1, wy;
+        at(y, source.height, height, y0, y1, wy);
+        for (int x = 0; x < width; x++) {
+            int x0, x1, wx;
+            at(x, source.width, width, x0, x1, wx);
+            for (int c = 0; c < 3; c++) {
+                auto px = [&](int sx, int sy) { return int(source.data[(size_t(sy) * source.width + sx) * 3 + c]); };
+                const int top = px(x0, y0) * (256 - wx) + px(x1, y0) * wx;
+                const int bottom = px(x0, y1) * (256 - wx) + px(x1, y1) * wx;
+                out.data[(size_t(y) * width + x) * 3 + c] = uint8_t((top * (256 - wy) + bottom * wy + 32768) >> 16);
+            }
+        }
+    }
+    return out;
 }
 
 } // namespace
@@ -215,8 +249,10 @@ int main(int argc, char** argv) {
     std::string error;
     if (loadPng(fixtures + "/fingers.png", fingers, error)) {
         testStride(fingers);
+        // A photo-sized still (the app caps photos at 2048 px on the long side).
+        testFrame("fingers-2048x1536-synthetic", upscaled(fingers, 2048, 1536), 0x17305ab000cbc3a4ull);
     } else {
-        check(false, "fingers.png loads for the stride test: " + error);
+        check(false, "fingers.png loads for the stride and 2048 px tests: " + error);
     }
     std::printf("%d/%d checks passed\n", checks - failures, checks);
     return failures;
