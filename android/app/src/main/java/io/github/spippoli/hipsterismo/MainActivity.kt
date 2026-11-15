@@ -28,7 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
 /**
- * The app opens on the camera screen. Without the CAMERA permission it asks
+ * The app opens on the camera screen ([MosaicApp]). Without the CAMERA permission it asks
  * once, and while the permission is denied it shows why it is needed.
  *
  * The activity handles rotation itself (`configChanges`), so the camera keeps
@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // A shutter JPEG left over from a photo that never finished.
+        if (savedInstanceState == null) photoCache(this).deleteRecursively()
         val previewView = PreviewView(this).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -74,7 +76,7 @@ class MainActivity : ComponentActivity() {
                         pipeline.start(this@MainActivity, previewView.surfaceProvider)
                         onDispose { pipeline.stop() }
                     }
-                    CameraScreen(pipeline, previewView)
+                    MosaicApp(pipeline, previewView)
                 }
                 denied -> PermissionScreen(canAsk) {
                     if (canAsk) request.launch(Manifest.permission.CAMERA) else openAppSettings()

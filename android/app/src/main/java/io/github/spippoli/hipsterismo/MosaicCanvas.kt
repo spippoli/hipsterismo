@@ -1,6 +1,8 @@
 package io.github.spippoli.hipsterismo
 
 import android.graphics.Canvas
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
@@ -15,8 +17,9 @@ import androidx.compose.ui.graphics.nativeCanvas
 /**
  * Draws [mosaic] centred with its aspect ratio kept: covering the whole space
  * and cropped if [crop] (the live preview), or whole inside it. With
- * [showContours] its Contours are drawn over it. [onDrawn] runs after each
- * draw, for the fps meter.
+ * [showContours] its Contours are drawn over it. With [dim] it is darkened
+ * and desaturated, the frozen preview while a photo is processed. [onDrawn]
+ * runs after each draw, for the fps meter.
  */
 @Composable
 fun MosaicCanvas(
@@ -24,6 +27,7 @@ fun MosaicCanvas(
     modifier: Modifier = Modifier,
     crop: Boolean = false,
     showContours: Boolean = false,
+    dim: Boolean = false,
     onDrawn: (Mosaic) -> Unit = {},
 ) {
     // drawVertices() modulates the vertex colours with the paint's, which
@@ -31,6 +35,8 @@ fun MosaicCanvas(
     val paint = remember { Paint().apply { color = android.graphics.Color.WHITE } }
     val contourPaint = remember { contourPaint() }
     Canvas(modifier) {
+        paint.colorFilter = if (dim) DIMMED else null
+        contourPaint.colorFilter = paint.colorFilter
         val place = placement(mosaic.width, mosaic.height, size.width, size.height, crop)
         translate(place.dx, place.dy) {
             scale(place.scale, pivot = Offset.Zero) {
@@ -43,6 +49,14 @@ fun MosaicCanvas(
         onDrawn(mosaic)
     }
 }
+
+/** The mock's frozen preview, CSS `brightness(.55) saturate(.6)`. */
+private val DIMMED = ColorMatrixColorFilter(
+    ColorMatrix().apply {
+        setSaturation(0.6f)
+        postConcat(ColorMatrix().apply { setScale(0.55f, 0.55f, 0.55f, 1f) })
+    },
+)
 
 /** Draws [mosaic] in Frame pixel coordinates, one flat colour per Tessel. */
 fun Canvas.drawMosaic(mosaic: Mosaic, paint: Paint) {
