@@ -2,11 +2,14 @@
 #include "ofAppNoWindow.h"
 #include "ofxUnitTests.h"
 #include "Mosaic.h"
+#include "Adaptive.h"
 #include "CommandLine.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <map>
+#include <numeric>
 #include <random>
 #include <set>
 
@@ -279,6 +282,47 @@ int contourCrossings(const Mosaic& mosaic) {
     return crossings;
 }
 
+// How many Patches a Mosaic shows: Tessels joined across every shared edge
+// that is not a Contour segment, counted as connected groups of at least
+// `minArea` px². Adaptive's Tessels never cross a Contour and its Contour
+// segments are Tessel edges, so each group is one 4-connected region of a
+// Patch. (A Patch whose pixels only touch at a corner counts once per
+// region; such regions are often a pixel or two, hence `minArea`.)
+int patchCount(const Mosaic& mosaic, double minArea = 0) {
+    using Point = std::pair<int, int>;
+    using Edge = std::pair<Point, Point>;
+    auto point = [](glm::vec2 v) { return Point(int(std::lround(v.x)), int(std::lround(v.y))); };
+    auto edge = [&](glm::vec2 a, glm::vec2 b) {
+        Point p = point(a), q = point(b);
+        return p < q ? Edge(p, q) : Edge(q, p);
+    };
+    std::set<Edge> walls;
+    for (const ofPolyline& contour : mosaic.contours) {
+        for (auto [a, b] : segments(contour)) walls.insert(edge(a, b));
+    }
+    std::vector<int> parent(mosaic.tessels.size());
+    std::iota(parent.begin(), parent.end(), 0);
+    auto find = [&](int x) {
+        while (parent[x] != x) x = parent[x] = parent[parent[x]];
+        return x;
+    };
+    std::map<Edge, int> seen;
+    for (size_t t = 0; t < mosaic.tessels.size(); t++) {
+        const auto& v = mosaic.tessels[t].triangle;
+        for (int e = 0; e < 3; e++) {
+            Edge key = edge(v[e], v[(e + 1) % 3]);
+            if (walls.count(key)) continue;
+            auto [it, fresh] = seen.insert({key, int(t)});
+            if (!fresh) parent[find(int(t))] = find(it->second);
+        }
+    }
+    std::map<int, double> groupArea;
+    for (size_t t = 0; t < parent.size(); t++) groupArea[find(int(t))] += area(mosaic.tessels[t]);
+    int groups = 0;
+    for (auto [root, total] : groupArea) groups += total >= minArea;
+    return groups;
+}
+
 // `top` above the line from (0, 30) to (160, 90), `bottom` below it: a
 // slanted Patch boundary, which the pixels turn into a staircase.
 ofPixels slantedFrame(const ofColor& top, const ofColor& bottom) {
@@ -345,6 +389,9 @@ class ofApp : public ofxUnitTestsApp {
         testAdaptiveCrossingRepairRegressions();
         testAdaptiveDeterminism();
         testAdaptivePixelFormats();
+        testAdaptiveGolden();
+        testAdaptiveSizes();
+        testAdaptiveScalesWithFrame();
         testDelaunayKeepsFlatBorderTriangles();
         testDelaunayTilesRandomPointSets();
         testDelaunayTilesCocircularClusters();
@@ -905,10 +952,14 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(coloured, "adaptive: every Tessel takes exactly its half's colour");
     }
 
+    // min patch area is in px² at 320x240, so on this 160x120 Frame 128
+    // means 32 px² and 8 means 2 px².
     void testAdaptiveMinPatchArea() {
         ofPixels frame = smallSquareFrame(background, foreground);
-        ofxTest(AdaptiveMaker(32).make(frame).contours.empty(),
-                "adaptive: a 4x4 Patch is absorbed at min patch area 32");
+        ofxTest(AdaptiveMaker(128).make(frame).contours.empty(),
+                "adaptive: a 4x4 Patch is absorbed at min patch area 128 (32 px² at 160x120)");
+        ofxTestEq(AdaptiveMaker(32).make(frame).contours.size(), size_t(1),
+                  "adaptive: a 4x4 Patch survives min patch area 32 (8 px² at 160x120)");
 
         Mosaic kept = AdaptiveMaker(8).make(frame);
         ofxTestEq(kept.contours.size(), size_t(1), "adaptive: a 4x4 Patch has a Contour at min patch area 8");
@@ -1016,6 +1067,100 @@ class ofApp : public ofxUnitTestsApp {
         ofxTest(sameMosaic(fromGray, AdaptiveMaker().make(grayAsRgb)),
                 "adaptive: a grayscale Frame gives the same Mosaic as its RGB equivalent");
         ofxTest(coversFrame(fromGray, 160, 120), "adaptive: a grayscale Frame is tiled");
+    }
+
+    // At 320x240 adaptive must keep giving exactly the Mosaic it gave before
+    // its size constants were referred to that Frame size (#32).
+    void testAdaptiveGolden() {
+        ofPixels scene = loadFixture("fingers.png");
+        ofxTest(scene.isAllocated(), "fixture fingers.png loads");
+        if (!scene.isAllocated()) return;
+        Mosaic mosaic = AdaptiveMaker().make(scene);
+        const uint64_t hash = mosaicHash(mosaic);
+        ofLogNotice("adaptive golden") << mosaic.tessels.size() << " Tessels, " << patchCount(mosaic)
+                                       << " Patches, hash 0x" << ofToHex(hash);
+        ofxTestEq(hash, uint64_t(0x62e72339903fe092ull), "adaptive Mosaic of fingers.png matches the golden hash");
+    }
+
+    // The size constants are referred to 320x240: min patch area scales
+    // with the Frame area, σ and ε with the shorter side.
+    void testAdaptiveSizes() {
+        using adaptive::sizesFor;
+        adaptive::Sizes reference = sizesFor(320, 240, 32);
+        ofxTest(reference.minPatchArea == 32 && reference.blurSigma == adaptive::blurSigma
+                    && reference.boundaryEpsilon == adaptive::boundaryEpsilon,
+                "sizes: 320x240 keeps the constants exactly");
+        ofxTest(sizesFor(240, 320, 77).minPatchArea == 77 && sizesFor(240, 320, 77).boundaryEpsilon == 3.0,
+                "sizes: 240x320 keeps them too");
+
+        adaptive::Sizes big = sizesFor(1280, 960, 32);
+        ofxTestEq(big.minPatchArea, 512, "sizes: 1280x960 has 16x the min patch area");
+        ofxTestEq(big.blurSigma, 3.2f, "sizes: 1280x960 has 4x the blur sigma");
+        ofxTestEq(big.boundaryEpsilon, 12.0, "sizes: 1280x960 has 4x the boundary epsilon");
+
+        adaptive::Sizes strip = sizesFor(320, 120, 32);
+        ofxTestEq(strip.minPatchArea, 16, "sizes: 320x120 has half the min patch area");
+        ofxTestEq(strip.boundaryEpsilon, 1.5, "sizes: 320x120 scales epsilon by its shorter side");
+        ofxTestEq(strip.blurSigma, 0.4f, "sizes: 320x120 scales sigma by its shorter side");
+
+        ofxTestEq(sizesFor(1920, 1080, 32).minPatchArea, 864, "sizes: 1920x1080 has 27x the min patch area");
+        ofxTestEq(sizesFor(160, 120, 9).minPatchArea, 2, "sizes: the min patch area is rounded to the nearest");
+        ofxTestEq(sizesFor(37, 23, 8).minPatchArea, 1, "sizes: the min patch area is at least 1");
+        ofxTest(sizesFor(1, 1, 8).blurSigma > 0 && sizesFor(1, 1, 8).boundaryEpsilon > 0,
+                "sizes: sigma and epsilon stay positive on a 1x1 Frame");
+    }
+
+    // `frame` resized by `factor` with bilinear interpolation.
+    static ofPixels scaled(const ofPixels& frame, int factor) {
+        cv::Mat big;
+        cv::resize(ofxCv::toCv(frame), big, cv::Size(), factor, factor, cv::INTER_LINEAR);
+        ofPixels result;
+        ofxCv::toOf(big, result);
+        return result;
+    }
+
+    // The same picture at a larger size gives about as many Patches: the
+    // size constants are referred to 320x240 and scale with the Frame.
+    void testAdaptiveScalesWithFrame() {
+        ofxTestEq(patchCount(AdaptiveMaker().make(solidFrame(160, 120, background))), 1,
+                  "patchCount: a uniform Frame is one Patch");
+        ofxTestEq(patchCount(AdaptiveMaker().make(halvesFrame(background, foreground))), 2,
+                  "patchCount: two halves are two Patches");
+
+        ofPixels scene = loadFixture("fingers.png");
+        if (!scene.isAllocated()) return;
+        ofPixels strip = scene;
+        strip.crop(0, 60, 320, 120);
+        const std::vector<std::pair<std::string, ofPixels>> frames = {{"fingers.png", scene},
+                                                                      {"fingers.png 320x120", strip}};
+        // Regions under half the min patch area (scaled) are not counted:
+        // see patchCount().
+        auto counted = [](const Mosaic& mosaic, const ofPixels& frame) {
+            const int w = frame.getWidth(), h = frame.getHeight();
+            return patchCount(mosaic, adaptive::sizesFor(w, h, 32).minPatchArea / 2.0);
+        };
+        for (const auto& [name, frame] : frames) {
+            Mosaic small = AdaptiveMaker().make(frame);
+            const int reference = counted(small, frame);
+            ofPixels big = scaled(frame, 4);
+            uint64_t start = ofGetElapsedTimeMicros();
+            Mosaic mosaic = AdaptiveMaker().make(big);
+            const double ms = (ofGetElapsedTimeMicros() - start) / 1000.0;
+            const int patches = counted(mosaic, big);
+            ofLogNotice("adaptive") << name << ": " << reference << " Patches (" << patchCount(small)
+                                    << " regions), " << small.tessels.size() << " Tessels at " << frame.getWidth()
+                                    << "x" << frame.getHeight() << "; " << patches << " Patches ("
+                                    << patchCount(mosaic) << " regions), " << mosaic.tessels.size()
+                                    << " Tessels at " << big.getWidth() << "x" << big.getHeight() << " in "
+                                    << ofToString(ms, 0) << " ms";
+            // Measured: +21% on fingers.png and +33% on the strip (the
+            // upscaled Frame is smoother, and FH's k is not scaled); with
+            // the absolute constants it was about 10x.
+            ofxTest(std::abs(patches - reference) <= reference * 2 / 5,
+                    "adaptive: " + name + " upscaled x4 gives about as many Patches, within 40%");
+            ofxTest(coversFrame(mosaic, big.getWidth(), big.getHeight()), "adaptive: Tessels tile " + name + " x4");
+            ofxTestEq(contourCrossings(mosaic), 0, "adaptive: no Tessel edge crosses a Contour on " + name + " x4");
+        }
     }
 };
 

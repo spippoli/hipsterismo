@@ -46,6 +46,7 @@ MosaicMaker::MosaicMaker() {
     parameters.add(minArea.set("min area", 2, 0, 10000));
     parameters.add(maxArea.set("max area", 400000, 0, 2000000));
     parameters.add(findHoles.set("find holes", true));
+    // In px² at 320x240: adaptive::sizesFor() scales it with the Frame area.
     parameters.add(minPatchArea.set("min patch area", 32, 8, 1024));
 
     // Canny output is binary (0 or 255), so any threshold in between is equivalent.

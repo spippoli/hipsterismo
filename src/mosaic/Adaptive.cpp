@@ -50,11 +50,11 @@ int relabel(std::vector<int>& label, DisjointSets& sets, int count) {
 
 // ------------------------------------------------------------ Lab Frame
 
-cv::Mat blurredLab(const ofPixels& rgb) {
+cv::Mat blurredLab(const ofPixels& rgb, float sigma) {
     cv::Mat source = ofxCv::toCv(rgb), unit, lab;
     source.convertTo(unit, CV_32F, 1.0 / 255);
     cv::cvtColor(unit, lab, cv::COLOR_RGB2Lab);
-    cv::GaussianBlur(lab, lab, cv::Size(0, 0), blurSigma);
+    cv::GaussianBlur(lab, lab, cv::Size(0, 0), sigma);
     return lab;
 }
 
@@ -469,7 +469,7 @@ bool conflict(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::ivec2 d) {
     return onSegment(a, b, c) || onSegment(a, b, d) || onSegment(c, d, a) || onSegment(c, d, b);
 }
 
-// Every chain simplified once at boundaryEpsilon, so the two Patches either
+// Every chain simplified once at `startEpsilon`, so the two Patches either
 // side of it see the same edge, then the crossing repair. Each round, every
 // chain with a segment that conflicts with another segment, of its own or of
 // another chain, is simplified again at half its ε; once ε would drop below
@@ -477,10 +477,10 @@ bool conflict(glm::ivec2 a, glm::ivec2 b, glm::ivec2 c, glm::ivec2 d) {
 // also of a closed loop. The rounds go on until no conflict remains. Exact
 // chains never conflict with each other, so each round with a conflict moves
 // at least one chain a step down its finite ladder of ε, and the loop ends.
-std::vector<Chain> simplifyChains(const std::vector<Chain>& exact, int w, int h) {
+std::vector<Chain> simplifyChains(const std::vector<Chain>& exact, int w, int h, double startEpsilon) {
     const size_t count = exact.size();
     std::vector<Chain> chains(count);
-    std::vector<double> epsilon(count, boundaryEpsilon);
+    std::vector<double> epsilon(count, startEpsilon);
     std::vector<char> isExact(count), changed(count, 1);
     // A simplification keeps a subset of the points, so the same count means
     // the exact chain.
@@ -640,17 +640,29 @@ ofColor meanColour(const ofPixels& rgb, std::array<glm::dvec2, 3> t) {
 
 } // namespace
 
+Sizes sizesFor(int width, int height, int minPatchArea) {
+    // Exactly 1 at 320x240, so the constants come through unchanged there.
+    const double areaRatio = double(width) * height / (double(referenceWidth) * referenceHeight);
+    const int shorter = std::min(width, height);
+    Sizes sizes;
+    sizes.minPatchArea = std::max(1, int(std::lround(minPatchArea * areaRatio)));
+    sizes.blurSigma = blurSigma * (float(shorter) / referenceHeight);
+    sizes.boundaryEpsilon = boundaryEpsilon * (double(shorter) / referenceHeight);
+    return sizes;
+}
+
 Mosaic make(const ofPixels& rgb, int minPatchArea) {
     const int w = rgb.getWidth(), h = rgb.getHeight();
-    cv::Mat lab = blurredLab(rgb);
+    const Sizes sizes = sizesFor(w, h, minPatchArea);
+    cv::Mat lab = blurredLab(rgb, sizes.blurSigma);
     int count = 0;
     std::vector<int> label = felzenszwalb(lab, count);
     count = joinEqualColours(rgb, label, count);
-    wardMerge(lab, label, count, minPatchArea);
+    wardMerge(lab, label, count, sizes.minPatchArea);
 
     std::vector<Chain> exact = traceChains(label, w, h);
     for (Chain& chain : exact) mergeCollinear(chain);
-    std::vector<Chain> chains = simplifyChains(exact, w, h);
+    std::vector<Chain> chains = simplifyChains(exact, w, h, sizes.boundaryEpsilon);
     Mosaic mosaic;
     for (size_t i = 0; i < chains.size(); i++) {
         if (onBorder(exact[i], w, h)) continue;
