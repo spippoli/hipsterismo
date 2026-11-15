@@ -70,7 +70,7 @@ inline int nextVertexMode(int mode) {
 //   constrained Delaunay triangulation follows their boundaries, so no
 //   Tessel crosses two Patches. Each Tessel takes the mean colour of the
 //   pixels inside it, and the Contours are the Patch boundaries off the
-//   Frame border. See Adaptive.h for the pipeline.
+//   Frame border. See core/AdaptiveCore.h for the pipeline.
 //
 // In stable mode make() depends on the Frames seen so far (only through the
 // active cells): the same sequence of Frames and parameters always gives the
