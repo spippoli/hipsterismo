@@ -1,8 +1,11 @@
 #include "AdaptiveLab.h"
 
+#include "AdaptiveParallel.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <memory>
 
 #if defined(__x86_64__)
 #include <immintrin.h>
@@ -139,7 +142,10 @@ int reflect101(int p, int length) {
 // out[j] = the taps in order, s = fma(sources[i][j], kernel[i], s) from
 // s = 0, for j < count. std::fma is correctly rounded, so every version
 // below gives the same floats: a portable loop, and vector versions that
-// keep 8 (AVX2) or 4 (NEON) sums in a register over all the taps.
+// keep 8 (AVX2) or 4 (NEON) sums in a register over all the taps. Each sum is
+// a chain of dependent fused multiply-adds, so the vector versions run
+// several blocks of outputs side by side (8 registers of sums), whose chains
+// are independent: the order of each output's taps stays the same.
 void convolvePlain(float* out, const float* const* sources, const float* kernel, int taps, int from, int count) {
     for (int j = from; j < count; j++) {
         float s = 0;
@@ -148,10 +154,22 @@ void convolvePlain(float* out, const float* const* sources, const float* kernel,
     }
 }
 
+constexpr int convolveBlocks = 8; // registers of sums per pass
+
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
 __attribute__((target("avx2,fma"))) void convolveAvx2(float* out, const float* const* sources, const float* kernel,
                                                         int taps, int count) {
     int j = 0;
+    for (; j + 8 * convolveBlocks <= count; j += 8 * convolveBlocks) {
+        __m256 s[convolveBlocks];
+        for (int b = 0; b < convolveBlocks; b++) s[b] = _mm256_setzero_ps();
+        for (int i = 0; i < taps; i++) {
+            const __m256 k = _mm256_set1_ps(kernel[i]);
+            const float* source = sources[i] + j;
+            for (int b = 0; b < convolveBlocks; b++) s[b] = _mm256_fmadd_ps(_mm256_loadu_ps(source + 8 * b), k, s[b]);
+        }
+        for (int b = 0; b < convolveBlocks; b++) _mm256_storeu_ps(out + j + 8 * b, s[b]);
+    }
     for (; j + 8 <= count; j += 8) {
         __m256 s = _mm256_setzero_ps();
         for (int i = 0; i < taps; i++) {
@@ -173,6 +191,16 @@ void convolve(float* out, const float* const* sources, const float* kernel, int 
     }
 #elif defined(__aarch64__)
     int j = 0;
+    for (; j + 4 * convolveBlocks <= count; j += 4 * convolveBlocks) {
+        float32x4_t s[convolveBlocks];
+        for (int b = 0; b < convolveBlocks; b++) s[b] = vdupq_n_f32(0);
+        for (int i = 0; i < taps; i++) {
+            const float k = kernel[i];
+            const float* source = sources[i] + j;
+            for (int b = 0; b < convolveBlocks; b++) s[b] = vfmaq_n_f32(s[b], vld1q_f32(source + 4 * b), k);
+        }
+        for (int b = 0; b < convolveBlocks; b++) vst1q_f32(out + j + 4 * b, s[b]);
+    }
     for (; j + 4 <= count; j += 4) {
         float32x4_t s = vdupq_n_f32(0);
         for (int i = 0; i < taps; i++) s = vfmaq_n_f32(s, vld1q_f32(sources[i] + j), kernel[i]);
@@ -232,11 +260,13 @@ std::array<float, 3> labOf(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 void labFrame(const uint8_t* rgb, int width, int height, int stride, float* lab) {
-    for (int y = 0; y < height; y++) {
-        const uint8_t* p = rgb + size_t(y) * stride;
-        float* out = lab + size_t(y) * width * 3;
-        for (int x = 0; x < width; x++, p += 3, out += 3) labInto(p[0], p[1], p[2], out);
-    }
+    parallelFor(height, 32, threadsFor(size_t(width) * height), [&](int from, int to, int) {
+        for (int y = from; y < to; y++) {
+            const uint8_t* p = rgb + size_t(y) * stride;
+            float* out = lab + size_t(y) * width * 3;
+            for (int x = 0; x < width; x++, p += 3, out += 3) labInto(p[0], p[1], p[2], out);
+        }
+    });
 }
 
 int gaussianTaps(double sigma) {
@@ -270,30 +300,50 @@ std::vector<float> gaussianKernel(int taps, double sigma) {
     return std::vector<float>(kernel.begin(), kernel.end());
 }
 
-void gaussianBlur(std::vector<float>& values, int width, int height, double sigma) {
+void gaussianBlur(float* values, int width, int height, double sigma) {
     const int taps = gaussianTaps(sigma), radius = taps / 2;
     if (width <= 0 || height <= 0 || taps <= 1) return;
     const std::vector<float> kernel = gaussianKernel(taps, sigma);
     const int rowFloats = width * 3;
+    const int threads = threadsFor(size_t(width) * height);
+    // Per thread: a padded row and the taps' source pointers.
+    std::vector<std::vector<float>> padded(threads, std::vector<float>(size_t(width + 2 * radius) * 3));
+    std::vector<std::vector<const float*>> sources(threads, std::vector<const float*>(taps));
 
     // Rows: each row padded with its reflection, tap i starting i pixels in.
-    std::vector<float> rows(values.size()), padded(size_t(width + 2 * radius) * 3);
-    std::vector<const float*> sources(taps);
-    for (int i = 0; i < taps; i++) sources[i] = &padded[size_t(i) * 3];
-    for (int y = 0; y < height; y++) {
-        const float* source = &values[size_t(y) * rowFloats];
-        std::copy_n(source, rowFloats, &padded[size_t(radius) * 3]);
-        for (int x = 1; x <= radius; x++) {
-            std::copy_n(source + reflect101(-x, width) * 3, 3, &padded[size_t(radius - x) * 3]);
-            std::copy_n(source + reflect101(width - 1 + x, width) * 3, 3, &padded[size_t(radius + width - 1 + x) * 3]);
+    // Every row is written before the columns read it, so `rows` is left
+    // uninitialised.
+    std::unique_ptr<float[]> rows(new float[size_t(rowFloats) * height]);
+    parallelFor(height, 16, threads, [&](int fromY, int toY, int slot) {
+        float* pad = padded[slot].data();
+        const float** source = sources[slot].data();
+        for (int i = 0; i < taps; i++) source[i] = pad + size_t(i) * 3;
+        for (int y = fromY; y < toY; y++) {
+            const float* row = &values[size_t(y) * rowFloats];
+            std::copy_n(row, rowFloats, pad + size_t(radius) * 3);
+            for (int x = 1; x <= radius; x++) {
+                std::copy_n(row + reflect101(-x, width) * 3, 3, pad + size_t(radius - x) * 3);
+                std::copy_n(row + reflect101(width - 1 + x, width) * 3, 3, pad + size_t(radius + width - 1 + x) * 3);
+            }
+            convolve(&rows[size_t(y) * rowFloats], source, kernel.data(), taps, rowFloats);
         }
-        convolve(&rows[size_t(y) * rowFloats], sources.data(), kernel.data(), taps, rowFloats);
-    }
-    // Columns: tap i is the reflected row y + i - radius.
-    for (int y = 0; y < height; y++) {
-        for (int i = 0; i < taps; i++) sources[i] = &rows[size_t(reflect101(y + i - radius, height)) * rowFloats];
-        convolve(&values[size_t(y) * rowFloats], sources.data(), kernel.data(), taps, rowFloats);
-    }
+    });
+    // Columns: tap i is the reflected row y + i - radius. In strips of 256
+    // floats, so the taps' rows of a strip stay in the cache from one output
+    // row to the next (43 taps at 2048 px would otherwise read 1 MB per row).
+    const int strip = 256, strips = (rowFloats + strip - 1) / strip;
+    parallelFor(strips, 1, threads, [&](int fromStrip, int toStrip, int slot) {
+        const float** source = sources[slot].data();
+        for (int from = fromStrip * strip; from < std::min(rowFloats, toStrip * strip); from += strip) {
+            const int count = std::min(strip, rowFloats - from);
+            for (int y = 0; y < height; y++) {
+                for (int i = 0; i < taps; i++) {
+                    source[i] = &rows[size_t(reflect101(y + i - radius, height)) * rowFloats + from];
+                }
+                convolve(&values[size_t(y) * rowFloats + from], source, kernel.data(), taps, count);
+            }
+        }
+    });
 }
 
 } // namespace mosaic::core

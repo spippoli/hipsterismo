@@ -5,9 +5,13 @@
 # openFrameworks makefiles ignore this file and compile the sources directly.
 #
 # Only this folder and the vendored CDT are on the include path and no library
-# is linked: an openFrameworks, glm or OpenCV include fails to compile.
+# is linked but the system's threads (std::thread, for photo-sized Frames, see
+# AdaptiveParallel.h): an openFrameworks, glm or OpenCV include fails to
+# compile.
 add_library(adaptive_core STATIC AdaptiveCore.cpp AdaptiveLab.cpp)
 target_compile_features(adaptive_core PUBLIC cxx_std_20)
+find_package(Threads REQUIRED)
+target_link_libraries(adaptive_core PUBLIC Threads::Threads)
 target_include_directories(adaptive_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(adaptive_core SYSTEM PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../CDT)
 # No fused multiply-adds: clang contracts a*b+c by default where the target

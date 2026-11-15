@@ -4,11 +4,13 @@
 #include <cmath>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <queue>
 #include <unordered_map>
 
 #include "AdaptiveLab.h"
+#include "AdaptiveParallel.h"
 #include "CDT.h"
 
 namespace mosaic::core {
@@ -109,37 +111,50 @@ const uint8_t* pixel(const RgbImage& rgb, int x, int y) {
 // A float Lab Frame, three floats (L, a, b) per pixel, row by row.
 struct LabFrame {
     int width = 0, height = 0;
-    std::vector<float> values;
+    std::unique_ptr<float[]> values;
     const float* at(int i) const { return &values[size_t(i) * 3]; }
 };
 
 // The Frame in Lab (exactly OpenCV's float conversion, see labOf()),
 // blurred with σ by gaussianBlur(), whose fused multiply-adds give the same
-// floats on every platform.
+// floats on every platform. labFrame() writes every value, so the array is
+// left uninitialised.
 LabFrame blurredLab(const RgbImage& rgb, float sigma) {
-    LabFrame frame{rgb.width, rgb.height, std::vector<float>(size_t(rgb.width) * rgb.height * 3)};
-    labFrame(rgb.data, rgb.width, rgb.height, rgb.stride, frame.values.data());
-    gaussianBlur(frame.values, rgb.width, rgb.height, double(sigma));
+    LabFrame frame{rgb.width, rgb.height, std::unique_ptr<float[]>(new float[size_t(rgb.width) * rgb.height * 3])};
+    labFrame(rgb.data, rgb.width, rgb.height, rgb.stride, frame.values.get());
+    gaussianBlur(frame.values.get(), rgb.width, rgb.height, double(sigma));
     return frame;
 }
 
 // ------------------------------------------- Felzenszwalb–Huttenlocher
 
-struct PixelEdge {
-    int a, b;
+// The edges from each pixel to its right, lower, lower-right and lower-left
+// neighbours (directions 0 to 3), numbered 4 · pixel + direction, which is
+// the order the bucket sort keeps within a bucket.
+struct SortedEdge {
+    uint32_t edge;
     float weight; // Lab distance
 };
 
-// The edges from each pixel to its right, lower, lower-right and lower-left
-// neighbours, sorted by weight with a bucket sort (1/16 ΔE per bucket,
-// stable, so the order is deterministic).
-std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
+// The edges sorted by weight with a bucket sort (1/16 ΔE per bucket, stable,
+// so the order is deterministic). The weights of a row go into `weight`
+// (-1 where the neighbour is outside the Frame) and are counted per bucket
+// while the row is in the cache; then every edge is scattered straight to its
+// place, eight bytes each. Both arrays are written before they are read, so
+// they are left uninitialised (zeroing them cost as much as writing them).
+struct SortedEdges {
+    std::unique_ptr<SortedEdge[]> edges;
+    size_t count = 0;
+    const SortedEdge* begin() const { return edges.get(); }
+    const SortedEdge* end() const { return edges.get() + count; }
+};
+
+SortedEdges sortedEdges(const LabFrame& lab) {
     const int w = lab.width, h = lab.height;
-    std::vector<PixelEdge> edges;
-    edges.reserve(size_t(w) * h * 4);
+    const size_t n = size_t(w) * h;
+    std::unique_ptr<float[]> weight(new float[n * 4]);
     // The Euclidean distance, summed from 0 in channel order.
-    auto distance = [&](int i, int j) {
-        const float *p = lab.at(i), *q = lab.at(j);
+    auto distance = [](const float* p, const float* q) {
         float s = 0;
         for (int c = 0; c < 3; c++) {
             const float d = p[c] - q[c];
@@ -147,24 +162,59 @@ std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
         }
         return std::sqrt(s);
     };
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            const int i = y * w + x;
-            if (x + 1 < w) edges.push_back({i, i + 1, distance(i, i + 1)});
-            if (y + 1 < h) {
-                edges.push_back({i, i + w, distance(i, i + w)});
-                if (x + 1 < w) edges.push_back({i, i + w + 1, distance(i, i + w + 1)});
-                if (x > 0) edges.push_back({i, i + w - 1, distance(i, i + w - 1)});
-            }
-        }
-    }
     const int buckets = 4096;
     auto bucket = [&](float weight) { return std::min(buckets - 1, int(weight * 16.f)); };
-    std::vector<int> start(buckets + 1, 0);
-    for (const PixelEdge& e : edges) start[bucket(e.weight) + 1]++;
+    // Rows in parallel, each thread counting into its own buckets; the
+    // counts are integers, so their sum doesn't depend on the split.
+    const int threads = threadsFor(n);
+    std::vector<std::vector<size_t>> counts(threads, std::vector<size_t>(buckets + 1, 0));
+    parallelFor(h, 16, threads, [&](int fromY, int toY, int slot) {
+        std::vector<size_t>& count = counts[slot];
+        for (int y = fromY; y < toY; y++) {
+            const float* row = lab.at(y * w);
+            float* out = &weight[size_t(y) * w * 4];
+            if (y + 1 < h) {
+                const float* below = row + size_t(w) * 3;
+                auto edge = [&](int x) {
+                    const float* p = row + size_t(x) * 3;
+                    const float* q = below + size_t(x) * 3;
+                    out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
+                    out[4 * x + 1] = distance(p, q);
+                    out[4 * x + 2] = x + 1 < w ? distance(p, q + 3) : -1.f;
+                    out[4 * x + 3] = x > 0 ? distance(p, q - 3) : -1.f;
+                };
+                edge(0);
+                // Inside the row every pixel has all four edges.
+                for (int x = 1; x + 1 < w; x++) {
+                    const float* p = row + size_t(x) * 3;
+                    const float* q = below + size_t(x) * 3;
+                    out[4 * x + 0] = distance(p, p + 3);
+                    out[4 * x + 1] = distance(p, q);
+                    out[4 * x + 2] = distance(p, q + 3);
+                    out[4 * x + 3] = distance(p, q - 3);
+                }
+                if (w > 1) edge(w - 1);
+            } else {
+                for (int x = 0; x < w; x++) {
+                    const float* p = row + size_t(x) * 3;
+                    out[4 * x + 0] = x + 1 < w ? distance(p, p + 3) : -1.f;
+                    out[4 * x + 1] = out[4 * x + 2] = out[4 * x + 3] = -1.f;
+                }
+            }
+            for (int k = 0; k < 4 * w; k++) {
+                if (out[k] >= 0) count[bucket(out[k]) + 1]++;
+            }
+        }
+    });
+    std::vector<size_t> start(buckets + 1, 0);
+    for (const std::vector<size_t>& count : counts) {
+        for (int i = 0; i <= buckets; i++) start[i] += count[i];
+    }
     for (int i = 0; i < buckets; i++) start[i + 1] += start[i];
-    std::vector<PixelEdge> sorted(edges.size());
-    for (const PixelEdge& e : edges) sorted[start[bucket(e.weight)]++] = e;
+    SortedEdges sorted{std::unique_ptr<SortedEdge[]>(new SortedEdge[start[buckets]]), start[buckets]};
+    for (size_t e = 0; e < n * 4; e++) {
+        if (weight[e] >= 0) sorted.edges[start[bucket(weight[e])]++] = {uint32_t(e), weight[e]};
+    }
     return sorted;
 }
 
@@ -172,11 +222,13 @@ std::vector<PixelEdge> sortedEdges(const LabFrame& lab) {
 // heavier than either one's internal difference plus k / size. Min size 1,
 // so there is no small-component pass. Returns a label per pixel, 0..count-1.
 std::vector<int> felzenszwalb(const LabFrame& lab, int& count) {
-    const int n = lab.width * lab.height;
+    const int w = lab.width, n = lab.width * lab.height;
     DisjointSets sets(n);
     std::vector<float> threshold(n, segmentationK);
-    for (const PixelEdge& e : sortedEdges(lab)) {
-        int a = sets.find(e.a), b = sets.find(e.b);
+    const int offset[4] = {1, w, w + 1, w - 1};
+    for (const SortedEdge& e : sortedEdges(lab)) {
+        const int i = int(e.edge >> 2);
+        int a = sets.find(i), b = sets.find(i + offset[e.edge & 3]);
         if (a != b && e.weight <= threshold[a] && e.weight <= threshold[b]) {
             int root = sets.unite(a, b);
             threshold[root] = e.weight + segmentationK / sets.size[root];
@@ -188,23 +240,38 @@ std::vector<int> felzenszwalb(const LabFrame& lab, int& count) {
     return label;
 }
 
-// The pairs of 4-neighbouring labels, each once, sorted.
-std::vector<std::pair<int, int>> neighbourPairs(const std::vector<int>& label, int w, int h) {
-    std::vector<uint64_t> pairs;
-    auto pair = [&](int a, int b) {
-        if (a != b) pairs.push_back(uint64_t(std::min(a, b)) << 32 | uint32_t(std::max(a, b)));
-    };
+// The pairs of 4-neighbouring labels (labels 0..count-1), each once, sorted.
+// The pairs found along the boundaries are bucketed by their smaller label
+// (a counting sort), a stamp per larger label drops the repeats within a
+// bucket, and each short bucket is sorted.
+std::vector<std::pair<int, int>> neighbourPairs(const std::vector<int>& label, int w, int h, int count) {
+    std::vector<std::pair<int, int>> found;
     for (int y = 0; y < h; y++) {
+        const int* row = &label[size_t(y) * w];
+        const int* below = y + 1 < h ? row + w : nullptr;
         for (int x = 0; x < w; x++) {
-            if (x + 1 < w) pair(label[y * w + x], label[y * w + x + 1]);
-            if (y + 1 < h) pair(label[y * w + x], label[(y + 1) * w + x]);
+            const int a = row[x];
+            if (x + 1 < w && row[x + 1] != a) found.push_back({std::min(a, row[x + 1]), std::max(a, row[x + 1])});
+            if (below && below[x] != a) found.push_back({std::min(a, below[x]), std::max(a, below[x])});
         }
     }
-    std::sort(pairs.begin(), pairs.end());
-    pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
+    std::vector<int> start(size_t(count) + 1, 0);
+    for (const auto& pair : found) start[pair.first + 1]++;
+    for (int i = 0; i < count; i++) start[i + 1] += start[i];
+    std::vector<int> his(found.size()), fill(start.begin(), start.end() - 1);
+    for (const auto& pair : found) his[fill[pair.first]++] = pair.second;
+    std::vector<int> stamp(count, -1);
     std::vector<std::pair<int, int>> result;
-    result.reserve(pairs.size());
-    for (uint64_t p : pairs) result.push_back({int(p >> 32), int(p & 0xffffffffu)});
+    for (int lo = 0; lo < count; lo++) {
+        const size_t first = result.size();
+        for (int k = start[lo]; k < start[lo + 1]; k++) {
+            if (stamp[his[k]] != lo) {
+                stamp[his[k]] = lo;
+                result.push_back({lo, his[k]});
+            }
+        }
+        std::sort(result.begin() + first, result.end());
+    }
     return result;
 }
 
@@ -231,7 +298,7 @@ int joinEqualColours(const RgbImage& rgb, std::vector<int>& label, int count) {
     // Equal means are an equivalence, and joining two Patches keeps their
     // mean, so one pass over the original neighbours is enough.
     DisjointSets sets(count);
-    for (auto [a, b] : neighbourPairs(label, w, h)) {
+    for (auto [a, b] : neighbourPairs(label, w, h, count)) {
         const auto &p = sum[a], &q = sum[b];
         bool equal = true;
         for (int c = 0; c < 3; c++) equal = equal && p[c] * q[3] == q[c] * p[3];
@@ -248,22 +315,52 @@ int joinEqualColours(const RgbImage& rgb, std::vector<int>& label, int count) {
 // touch only at a pixel corner. The boundaries are traced along pixel sides,
 // where each piece is on its own, so a small piece would get its own
 // boundary and Tessels (#45). Relabels in scan order and returns the count.
+//
+// The pieces are found on runs (a row's stretches of one label): a run joins
+// the runs of the row above that it overlaps with the same label. Runs are in
+// scan order, so numbering the pieces by their first run numbers them by
+// their first pixel, as relabel() would.
 int splitIntoPieces(std::vector<int>& label, int w, int h) {
-    DisjointSets pieces(w * h);
+    struct Run {
+        int x0, x1, label; // pixels x0..x1-1
+    };
+    std::vector<Run> runs;
+    std::vector<int> rowStart(size_t(h) + 1);
     for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            const int i = y * w + x;
-            auto join = [&](int j) {
-                if (label[i] != label[j]) return;
-                int a = pieces.find(i), b = pieces.find(j);
-                if (a != b) pieces.unite(a, b);
-            };
-            if (x + 1 < w) join(i + 1);
-            if (y + 1 < h) join(i + w);
+        rowStart[y] = int(runs.size());
+        const int* row = &label[size_t(y) * w];
+        for (int x = 0; x < w;) {
+            int end = x + 1;
+            while (end < w && row[end] == row[x]) end++;
+            runs.push_back({x, end, row[x]});
+            x = end;
         }
     }
-    std::iota(label.begin(), label.end(), 0);
-    return relabel(label, pieces, w * h);
+    rowStart[h] = int(runs.size());
+    DisjointSets pieces(int(runs.size()));
+    for (int y = 1; y < h; y++) {
+        int k = rowStart[y - 1];
+        for (int r = rowStart[y]; r < rowStart[y + 1]; r++) {
+            const Run& run = runs[r];
+            while (runs[k].x1 <= run.x0) k++;
+            for (int u = k; u < rowStart[y] && runs[u].x0 < run.x1; u++) {
+                if (runs[u].label != run.label) continue;
+                int a = pieces.find(r), b = pieces.find(u);
+                if (a != b) pieces.unite(a, b);
+            }
+        }
+    }
+    std::vector<int> compact(runs.size(), -1);
+    int next = 0;
+    for (int y = 0; y < h; y++) {
+        int* row = &label[size_t(y) * w];
+        for (int r = rowStart[y]; r < rowStart[y + 1]; r++) {
+            const int root = pieces.find(r);
+            if (compact[root] < 0) compact[root] = next++;
+            std::fill(row + runs[r].x0, row + runs[r].x1, compact[root]);
+        }
+    }
+    return next;
 }
 
 // ------------------------------------------------------- Ward merging
@@ -284,7 +381,7 @@ int wardMerge(const LabFrame& lab, std::vector<int>& label, int count, int minAr
     }
 
     std::vector<std::vector<int>> neighbours(count);
-    for (auto [a, b] : neighbourPairs(label, w, h)) {
+    for (auto [a, b] : neighbourPairs(label, w, h, count)) {
         neighbours[a].push_back(b);
         neighbours[b].push_back(a);
     }
@@ -371,12 +468,29 @@ struct Chain {
 // the corners with three or more cracks, plus the four Frame corners; a
 // junction-free loop starts at its first corner in scan order.
 std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
-    auto at = [&](int x, int y) { return (x < 0 || y < 0 || x >= w || y >= h) ? -1 : label[y * w + x]; };
     // Horizontal crack (cx, cy)-(cx+1, cy) between pixels (cx, cy-1) and (cx, cy);
     // vertical crack (cx, cy)-(cx, cy+1) between pixels (cx-1, cy) and (cx, cy).
-    auto hasH = [&](int cx, int cy) { return cx >= 0 && cx < w && cy >= 0 && cy <= h && at(cx, cy - 1) != at(cx, cy); };
-    auto hasV = [&](int cx, int cy) { return cy >= 0 && cy < h && cx >= 0 && cx <= w && at(cx - 1, cy) != at(cx, cy); };
-    std::vector<uint8_t> visitedH(size_t(w) * (h + 1), 0), visitedV(size_t(w + 1) * h, 0);
+    // Each crack's state, found once: 0 no crack, 1 a crack not yet walked,
+    // 2 a walked one.
+    std::vector<uint8_t> crackH(size_t(w) * (h + 1)), crackV(size_t(w + 1) * h);
+    for (int cy = 0; cy <= h; cy++) {
+        const int* above = cy > 0 ? &label[size_t(cy - 1) * w] : nullptr;
+        const int* below = cy < h ? &label[size_t(cy) * w] : nullptr;
+        uint8_t* out = &crackH[size_t(cy) * w];
+        if (above && below) {
+            for (int cx = 0; cx < w; cx++) out[cx] = above[cx] != below[cx];
+        } else {
+            for (int cx = 0; cx < w; cx++) out[cx] = 1; // the Frame border (label -1 outside)
+        }
+    }
+    for (int cy = 0; cy < h; cy++) {
+        const int* row = &label[size_t(cy) * w];
+        uint8_t* out = &crackV[size_t(cy) * (w + 1)];
+        out[0] = out[w] = 1;
+        for (int cx = 1; cx < w; cx++) out[cx] = row[cx - 1] != row[cx];
+    }
+    auto hasH = [&](int cx, int cy) { return cx >= 0 && cx < w && cy >= 0 && cy <= h && crackH[size_t(cy) * w + cx]; };
+    auto hasV = [&](int cx, int cy) { return cy >= 0 && cy < h && cx >= 0 && cx <= w && crackV[size_t(cy) * (w + 1) + cx]; };
 
     std::vector<uint8_t> junction(size_t(w + 1) * (h + 1), 0);
     for (int cy = 0; cy <= h; cy++) {
@@ -387,14 +501,14 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
         }
     }
 
-    // The visited flag of the crack leaving (cx, cy) in direction `dir`
-    // (0 right, 1 down, 2 left, 3 up), or null if there is no crack there.
+    // The state of the crack leaving (cx, cy) in direction `dir` (0 right,
+    // 1 down, 2 left, 3 up), or null if there is no crack there.
     auto crack = [&](int cx, int cy, int dir) -> uint8_t* {
         switch (dir) {
-        case 0: return hasH(cx, cy) ? &visitedH[cy * w + cx] : nullptr;
-        case 1: return hasV(cx, cy) ? &visitedV[cy * (w + 1) + cx] : nullptr;
-        case 2: return hasH(cx - 1, cy) ? &visitedH[cy * w + cx - 1] : nullptr;
-        default: return hasV(cx, cy - 1) ? &visitedV[(cy - 1) * (w + 1) + cx] : nullptr;
+        case 0: return hasH(cx, cy) ? &crackH[cy * w + cx] : nullptr;
+        case 1: return hasV(cx, cy) ? &crackV[cy * (w + 1) + cx] : nullptr;
+        case 2: return hasH(cx - 1, cy) ? &crackH[cy * w + cx - 1] : nullptr;
+        default: return hasV(cx, cy - 1) ? &crackV[(cy - 1) * (w + 1) + cx] : nullptr;
         }
     };
     const int dx[4] = {1, 0, -1, 0}, dy[4] = {0, 1, 0, -1};
@@ -406,7 +520,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
         chain.points.push_back({cx, cy});
         const int sx = cx, sy = cy;
         while (true) {
-            *crack(cx, cy, dir) = 1;
+            *crack(cx, cy, dir) = 2;
             cx += dx[dir];
             cy += dy[dir];
             chain.points.push_back({cx, cy});
@@ -415,7 +529,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
             int next = -1;
             for (int d = 0; d < 4 && next < 0; d++) {
                 uint8_t* c = d == ((dir + 2) & 3) ? nullptr : crack(cx, cy, d);
-                if (c && !*c) next = d;
+                if (c && *c == 1) next = d;
             }
             if (next < 0) break;
             dir = next;
@@ -427,7 +541,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
             if (!junction[cy * (w + 1) + cx]) continue;
             for (int dir = 0; dir < 4; dir++) {
                 uint8_t* c = crack(cx, cy, dir);
-                if (c && !*c) walk(cx, cy, dir, false);
+                if (c && *c == 1) walk(cx, cy, dir, false);
             }
         }
     }
@@ -435,7 +549,7 @@ std::vector<Chain> traceChains(const std::vector<int>& label, int w, int h) {
         for (int cx = 0; cx <= w; cx++) {
             for (int dir = 0; dir < 2; dir++) {
                 uint8_t* c = crack(cx, cy, dir);
-                if (c && !*c) walk(cx, cy, dir, true);
+                if (c && *c == 1) walk(cx, cy, dir, true);
             }
         }
     }
@@ -708,9 +822,25 @@ Triangles triangulate(const std::vector<Chain>& chains, int w) {
     }
 }
 
+// Floor and ceiling of a / d for d > 0.
+int64_t floorDiv(int64_t a, int64_t d) {
+    return a >= 0 ? a / d : -((-a + d - 1) / d);
+}
+
+int64_t ceilDiv(int64_t a, int64_t d) {
+    return -floorDiv(-a, d);
+}
+
 // Mean colour of the pixels whose centre lies inside the triangle; a centre
 // on an edge counts for the triangle the edge is a top or left edge of, so
 // each pixel counts once. The pixel at the centroid if no centre is inside.
+//
+// The vertices are lattice points (pixel corners) and the centres are at
+// half pixels, so on the doubled lattice each edge's side test is exact in
+// integers: per row, each edge bounds the run of inside centres with an
+// integer division, the same decision for every pixel as the test
+// side > 0 || (side == 0 && topLeft) in doubles, which is exact here too.
+// The pixels of each run are then summed with no test.
 Rgb meanColour(const RgbImage& rgb, std::array<DVec, 3> t) {
     const int w = rgb.width, h = rgb.height;
     auto cross = [](DVec a, DVec b, DVec p) { return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); };
@@ -719,24 +849,41 @@ Rgb meanColour(const RgbImage& rgb, std::array<DVec, 3> t) {
     const int x1 = std::min(w - 1, int(std::ceil(std::max({t[0].x, t[1].x, t[2].x}))));
     const int y0 = std::max(0, int(std::floor(std::min({t[0].y, t[1].y, t[2].y}) - 0.5)));
     const int y1 = std::min(h - 1, int(std::ceil(std::max({t[0].y, t[1].y, t[2].y}))));
+    // Doubled vertices; edge k runs from v[k] to v[k + 1].
+    int64_t vx[3], vy[3];
+    for (int k = 0; k < 3; k++) {
+        vx[k] = 2 * int64_t(t[k].x);
+        vy[k] = 2 * int64_t(t[k].y);
+    }
     uint64_t r = 0, g = 0, b = 0, count = 0;
     for (int y = y0; y <= y1; y++) {
-        for (int x = x0; x <= x1; x++) {
-            DVec centre(x + 0.5, y + 0.5);
-            bool inside = true;
-            for (int k = 0; k < 3 && inside; k++) {
-                DVec a = t[k], e = t[(k + 1) % 3] - a;
-                double side = cross(a, a + e, centre);
-                bool topLeft = (e.y == 0 && e.x < 0) || e.y > 0;
-                inside = side > 0 || (side == 0 && topLeft);
+        const int64_t cy = 2 * int64_t(y) + 1;
+        int64_t lo = x0, hi = x1; // the run of inside centres in this row
+        for (int k = 0; k < 3 && lo <= hi; k++) {
+            const int64_t ax = vx[k], ay = vy[k], ex = vx[(k + 1) % 3] - ax, ey = vy[(k + 1) % 3] - ay;
+            // side(X) = ex (cy - ay) - ey (X - ax) = c - ey X at centre X = 2x + 1.
+            const int64_t c = ex * (cy - ay) + ey * ax;
+            if (ey == 0) {
+                // topLeft if ex < 0: inside if c > 0, or c == 0 on a top edge.
+                if (!(c > 0 || (c == 0 && ex < 0))) hi = lo - 1;
+            } else if (ey > 0) {
+                // A left edge (topLeft): inside if c - ey X >= 0, X <= c / ey.
+                const int64_t maxX = floorDiv(c, ey);
+                hi = std::min(hi, floorDiv(maxX - 1, 2));
+            } else {
+                // Not topLeft: inside if c + |ey| X > 0, X > -c / |ey|.
+                const int64_t minX = floorDiv(-c, -ey) + 1;
+                lo = std::max(lo, ceilDiv(minX - 1, 2));
             }
-            if (!inside) continue;
-            const uint8_t* p = pixel(rgb, x, y);
+        }
+        if (lo > hi) continue;
+        const uint8_t* p = pixel(rgb, int(lo), y);
+        for (int64_t x = lo; x <= hi; x++, p += 3) {
             r += p[0];
             g += p[1];
             b += p[2];
-            count++;
         }
+        count += uint64_t(hi - lo + 1);
     }
     if (count == 0) {
         DVec c = (t[0] + t[1] + t[2]) / 3.0;
