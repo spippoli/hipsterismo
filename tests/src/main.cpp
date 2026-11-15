@@ -4,6 +4,8 @@
 #include "Mosaic.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <random>
 #include <set>
 
@@ -159,6 +161,37 @@ bool sameMosaic(const Mosaic& a, const Mosaic& b) {
     return true;
 }
 
+// FNV-1a over the Tessels in order: each vertex's x and y as IEEE float
+// bits (little-endian), then the colour's r, g, b bytes.
+uint64_t mosaicHash(const Mosaic& mosaic) {
+    uint64_t h = 14695981039346656037ull;
+    auto byte = [&](uint8_t b) {
+        h ^= b;
+        h *= 1099511628211ull;
+    };
+    auto word = [&](float f) {
+        uint32_t bits;
+        std::memcpy(&bits, &f, sizeof bits);
+        for (int i = 0; i < 4; i++) byte(uint8_t(bits >> (8 * i)));
+    };
+    for (const Tessel& tessel : mosaic.tessels) {
+        for (const glm::vec3& v : tessel.triangle) {
+            word(v.x);
+            word(v.y);
+        }
+        byte(tessel.color.r);
+        byte(tessel.color.g);
+        byte(tessel.color.b);
+    }
+    return h;
+}
+
+ofPixels loadFixture(const std::string& name) {
+    ofPixels pixels;
+    ofLoadImage(pixels, ofFilePath::join(ofFilePath::getCurrentExeDir(), "../fixtures/" + name));
+    return pixels;
+}
+
 } // namespace
 
 // The tests below that are not about spline mode exercise stable mode, which
@@ -178,6 +211,7 @@ class ofApp : public ofxUnitTestsApp {
         testPersistence();
         testStabilityUnderNoise();
         testSplineMode();
+        testSplineGolden();
         testContourAreaFilter();
         testPixelFormats();
         testToMesh();
@@ -367,6 +401,20 @@ class ofApp : public ofxUnitTestsApp {
         MosaicMaker freshSpline;
         ofxTest(sameMosaic(spline.make(uniform), freshSpline.make(uniform)),
                 "spline mode: the Mosaic depends only on the current Frame");
+    }
+
+    // Spline mode must keep reproducing its output exactly. The hash was
+    // recorded from the spline Mosaic of fingers.png before vertex mode
+    // replaced stable vertices (#27); a change here changes the look.
+    void testSplineGolden() {
+        ofPixels scene = loadFixture("fingers.png");
+        ofxTest(scene.isAllocated(), "fixture fingers.png loads");
+        if (!scene.isAllocated()) return;
+
+        Mosaic mosaic = MosaicMaker().make(scene);
+        const uint64_t hash = mosaicHash(mosaic);
+        ofLogNotice("golden") << mosaic.tessels.size() << " Tessels, hash 0x" << ofToHex(hash);
+        ofxTestEq(hash, uint64_t(0x6fa697f1ffa56c72ull), "spline Mosaic of fingers.png matches the golden hash");
     }
 
     void testContourAreaFilter() {
