@@ -99,4 +99,40 @@ class PreviewMathsTest {
         assertEquals(0.0, window.rate(later + 2_000 * ms), 0.0)
         assertTrue(window.mean(later + 2_000 * ms).isNaN())
     }
+
+    @Test
+    fun iconsTurnAgainstThePhone() {
+        // Turned right (ROTATION_270): the icons turn anticlockwise.
+        assertEquals(-90f, iconAngle(0f, 3), 0f)
+        // Turned left (ROTATION_90): clockwise.
+        assertEquals(90f, iconAngle(0f, 1), 0f)
+        // Back upright, the short way.
+        assertEquals(0f, iconAngle(-90f, 0), 0f)
+        assertEquals(0f, iconAngle(90f, 0), 0f)
+        // From turned right to turned left through upside down, not back through 0.
+        assertEquals(-180f, iconAngle(-90f, 2), 0f)
+        assertEquals(-270f, iconAngle(-180f, 1), 0f)
+        // Already there: no turn, whatever the laps.
+        assertEquals(-450f, iconAngle(-450f, 3), 0f)
+    }
+
+    @Test
+    fun theSelectedStepIsCentred() {
+        val widths = listOf(20f, 30f, 40f)
+        // Item 0's centre (10) at 50.
+        assertEquals(40f, selectorOffset(widths, 10f, 0, 100f), 0f)
+        // Item 2 starts at 20 + 10 + 30 + 10 = 70, its centre at 90.
+        assertEquals(-40f, selectorOffset(widths, 10f, 2, 100f), 0f)
+        assertEquals(-40f, selectorOffset(widths, 10f, 9, 100f), 0f)
+        assertEquals(0f, selectorOffset(emptyList(), 10f, 0, 100f), 0f)
+    }
+
+    @Test
+    fun aSwipeLeftPicksLargerSteps() {
+        assertEquals(3, swipedIndex(2, -60f, 50f, 8))
+        assertEquals(1, swipedIndex(2, 40f, 50f, 8))
+        assertEquals(2, swipedIndex(2, 20f, 50f, 8))
+        assertEquals(7, swipedIndex(2, -1000f, 50f, 8))
+        assertEquals(0, swipedIndex(2, 1000f, 50f, 8))
+    }
 }

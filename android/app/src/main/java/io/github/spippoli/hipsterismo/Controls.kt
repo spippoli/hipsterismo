@@ -1,44 +1,68 @@
 package io.github.spippoli.hipsterismo
 
+import android.view.OrientationEventListener
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.drag
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -49,122 +73,180 @@ import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
-// The camera screen's controls, drawn like the mock's variant A (#57).
+// The controls, drawn like the stock Pixel camera app: white and greys on
+// black, round buttons, a mode row with the selection in a pill.
 
-val Accent = Color(0xFF7CC4FF)
-val PanelDark = Color(0xFF0E0F11)
-val OnDark = Color(0xFFF1F1F3)
+val Accent = Color(0xFFA8C7FA)
+val PanelDark = Color.Black
+val OnDark = Color(0xFFE3E3E3)
+val MetaGrey = Color(0xFFC4C7C5)
 
-val MetaGrey = Color(0xFFC9C9CF)
+/** The dark grey of the camera's round buttons and the selected pill. */
+val ButtonGrey = Color(0xFF303030)
 
-/** How the mock dims a disabled control. */
+/** How a disabled control is dimmed. */
 const val DISABLED_ALPHA = 0.4f
 
 fun labelStyle(size: Float = 12f, color: Color = OnDark) = TextStyle(color = color, fontSize = size.sp)
 
 /**
- * A slider over [count] discrete steps, at step [index]: horizontal with the
- * first step on the left, or [vertical] with the first step at the bottom.
- * Taps and drags snap to the nearest step. Unless [enabled], it is dimmed
- * and ignores them.
+ * The angle the icons turn by ([iconAngle]) while the screen stays in
+ * portrait, following how the phone is held, animated the short way.
  */
 @Composable
-fun StepSlider(
+fun rememberIconAngle(): State<Float> {
+    val context = LocalContext.current
+    var target by remember { mutableFloatStateOf(0f) }
+    DisposableEffect(context) {
+        val listener = object : OrientationEventListener(context) {
+            override fun onOrientationChanged(orientation: Int) {
+                val rotation = captureRotationFor(orientation) ?: return
+                val next = iconAngle(target, rotation)
+                if (next != target) target = next
+            }
+        }
+        if (listener.canDetectOrientation()) listener.enable()
+        onDispose { listener.disable() }
+    }
+    return animateFloatAsState(target, tween(320), label = "icons")
+}
+
+/**
+ * The `min patch area` row, in place of the camera's mode row: the steps of
+ * [MinPatchArea] side by side, the selected one ([index]) centred in a grey
+ * pill and reading "32 px²", the others fading towards the edges. A tap picks
+ * a step, a swipe moves along the row. Dimmed and inert unless [enabled].
+ */
+@Composable
+fun PatchAreaSelector(
     index: Int,
-    count: Int,
     onIndex: (Int) -> Unit,
     label: String,
-    value: String,
     modifier: Modifier = Modifier,
-    vertical: Boolean = false,
     enabled: Boolean = true,
 ) {
+    val steps = MinPatchArea.steps
     val onIndexNow by rememberUpdatedState(onIndex)
-    val thumb = 9.dp
-    Canvas(
+    val indexNow by rememberUpdatedState(index)
+    val widths = remember { mutableStateListOf<Float>().apply { repeat(steps.size) { add(0f) } } }
+    var containerWidth by remember { mutableFloatStateOf(0f) }
+    val gap = 4.dp
+    val gapPx = with(LocalDensity.current) { gap.toPx() }
+    val offset by animateFloatAsState(
+        selectorOffset(widths, gapPx, index, containerWidth),
+        spring(stiffness = Spring.StiffnessMediumLow),
+        label = "selector",
+    )
+    val value = stringResource(R.string.area_px2, MinPatchArea.at(index))
+    Box(
         modifier
+            .fillMaxWidth()
+            .height(44.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .onSizeChanged { containerWidth = it.width.toFloat() }
+            .clipToBounds()
+            // The row fades out towards both edges, as the camera's modes do.
+            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    Brush.horizontalGradient(
+                        0f to Color.Transparent, 0.18f to Color.Black, 0.82f to Color.Black, 1f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            }
             .semantics {
                 contentDescription = label
                 stateDescription = value
-                progressBarRangeInfo = ProgressBarRangeInfo(index.toFloat(), 0f..(count - 1).toFloat(), count - 2)
+                progressBarRangeInfo = ProgressBarRangeInfo(index.toFloat(), 0f..steps.lastIndex.toFloat(), steps.size - 2)
                 if (enabled) {
                     setProgress { target ->
-                        onIndexNow(target.roundToInt().coerceIn(0, count - 1))
+                        onIndexNow(target.roundToInt().coerceIn(0, steps.lastIndex))
                         true
                     }
                 } else {
                     disabled()
                 }
             }
-            .pointerInput(count, vertical, enabled) {
+            .pointerInput(enabled) {
                 if (!enabled) return@pointerInput
-                val pad = thumb.toPx()
-                fun step(position: Offset): Int {
-                    val length = if (vertical) size.height else size.width
-                    val along = if (vertical) position.y else position.x
-                    var fraction = ((along - pad) / (length - 2 * pad)).coerceIn(0f, 1f)
-                    if (vertical) fraction = 1 - fraction
-                    return (fraction * (count - 1)).roundToInt()
-                }
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    onIndexNow(step(down.position))
-                    drag(down.id) { change ->
-                        change.consume()
-                        onIndexNow(step(change.position))
-                    }
+                val step = 56.dp.toPx()
+                var start = 0
+                var dragged = 0f
+                detectHorizontalDragGestures(
+                    onDragStart = { start = indexNow; dragged = 0f },
+                ) { change, amount ->
+                    change.consume()
+                    dragged += amount
+                    val next = swipedIndex(start, dragged, step, steps.size)
+                    if (next != indexNow) onIndexNow(next)
                 }
             },
     ) {
-        val pad = thumb.toPx()
-        fun at(i: Int): Offset {
-            val fraction = i.toFloat() / (count - 1)
-            return if (vertical) Offset(size.width / 2, size.height - pad - fraction * (size.height - 2 * pad))
-            else Offset(pad + fraction * (size.width - 2 * pad), size.height / 2)
+        Row(
+            Modifier
+                .align(Alignment.CenterStart)
+                .wrapContentWidth(Alignment.Start, unbounded = true)
+                .offset { IntOffset(offset.roundToInt(), 0) },
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            steps.forEachIndexed { i, area ->
+                val selected = i == index
+                Box(
+                    Modifier
+                        .onSizeChanged { widths[i] = it.width.toFloat() }
+                        .clip(RoundedCornerShape(50))
+                        .background(if (selected) ButtonGrey else Color.Transparent)
+                        .clickable(enabled = enabled, role = Role.Button) { onIndexNow(i) }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    BasicText(
+                        if (selected) value else area.toString(),
+                        style = labelStyle(14f, if (selected) Color.White else MetaGrey)
+                            .copy(fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal),
+                        softWrap = false,
+                    )
+                }
+            }
         }
-        val track = 4.dp.toPx()
-        drawLine(Color.White.copy(alpha = 0.3f), at(0), at(count - 1), track, StrokeCap.Round)
-        drawLine(Accent, at(0), at(index), track, StrokeCap.Round)
-        for (i in 0 until count) drawCircle(if (i <= index) PanelDark.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.6f), 1.5.dp.toPx(), at(i))
-        drawCircle(Accent, pad, at(index))
     }
 }
 
 /**
- * The round white shutter. While [busy] (a photo is processed) its centre
- * empties, an accent ring spins around it and it ignores taps, at full
- * opacity like the mock.
+ * The camera's shutter: a white disc inside a white ring, which shrinks
+ * while pressed. Dimmed and inert unless [enabled].
  */
 @Composable
-fun Shutter(busy: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier) {
+fun Shutter(enabled: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val disc by animateFloatAsState(if (pressed) 0.84f else 1f, tween(120), label = "shutter")
     Box(
         modifier
-            .size(68.dp)
+            .size(76.dp)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(CircleShape)
-            .clickable(enabled = !busy, role = Role.Button, onClickLabel = "Scatta") { onShoot() }
-            // Modifier.border draws over the content, so while busy the ring
-            // draws the white circle itself, under its accent arc.
-            .then(if (busy) Modifier else Modifier.border(4.dp, Color.White, CircleShape))
-            .semantics {
-                contentDescription = "Scatta"
-                if (busy) stateDescription = "elaborazione"
-            },
+            .border(3.dp, Color.White, CircleShape)
+            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClickLabel = "Scatta") { onShoot() }
+            .semantics { contentDescription = "Scatta" },
         contentAlignment = Alignment.Center,
     ) {
-        if (busy) ShutterRing(Modifier.size(68.dp)) else Box(Modifier.size(52.dp).background(Color.White, CircleShape))
+        Box(Modifier.size(62.dp).scale(disc).background(Color.White, CircleShape))
     }
 }
 
-/** The mock's ring: the shutter's white border with a quarter of an accent circle over it, a turn every 0.9 s. */
+/** A quarter of a light ring over a dim one, a turn every 0.9 s: a photo being processed. */
 @Composable
-private fun ShutterRing(modifier: Modifier = Modifier) {
+private fun ProgressRing(modifier: Modifier = Modifier) {
     val turn = rememberInfiniteTransition(label = "ring")
     val angle by turn.animateFloat(
         0f, 360f,
@@ -172,61 +254,79 @@ private fun ShutterRing(modifier: Modifier = Modifier) {
         label = "angle",
     )
     Canvas(modifier.rotate(angle)) {
-        val width = 4.dp.toPx()
-        drawCircle(Color.White, radius = (size.minDimension - width) / 2, style = Stroke(width))
+        val width = 3.dp.toPx()
+        drawCircle(Color.White.copy(alpha = 0.25f), radius = (size.minDimension - width) / 2, style = Stroke(width))
         drawArc(
-            Accent, startAngle = -135f, sweepAngle = 90f, useCenter = false,
+            Color.White, startAngle = -135f, sweepAngle = 90f, useCenter = false,
             topLeft = Offset(width / 2, width / 2), size = Size(size.width - width, size.height - width),
-            style = Stroke(width),
+            style = Stroke(width, cap = StrokeCap.Round),
         )
     }
 }
 
-/** The gallery thumbnail, which opens the system photo picker. Dimmed and inert unless [enabled]. */
+/**
+ * The round gallery button left of the shutter, which opens the system photo
+ * picker; its glyph turns by [angle]. While [busy] (a photo is processed) a
+ * ring spins around it, as the camera's thumbnail does while it processes.
+ * Dimmed and inert unless [enabled].
+ */
 @Composable
-fun GalleryThumb(enabled: Boolean, onPick: () -> Unit, modifier: Modifier = Modifier) {
-    Canvas(
-        modifier
-            .size(44.dp)
-            .alpha(if (enabled) 1f else DISABLED_ALPHA)
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Galleria") { onPick() }
-            .background(Color(0xFF2B2E33))
-            .border(2.dp, Color.White.copy(alpha = 0.85f), RoundedCornerShape(12.dp))
-            .semantics { contentDescription = "Galleria" },
-    ) {
-        val u = size.minDimension / 24
-        val hills = Path().apply {
-            moveTo(5 * u, 18 * u)
-            lineTo(10 * u, 11 * u)
-            lineTo(13 * u, 15 * u)
-            lineTo(15 * u, 13 * u)
-            lineTo(19 * u, 18 * u)
-            close()
+fun GalleryThumb(enabled: Boolean, busy: Boolean, angle: Float, onPick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(modifier.size(60.dp), contentAlignment = Alignment.Center) {
+        if (busy) ProgressRing(Modifier.size(60.dp))
+        Canvas(
+            Modifier
+                .size(50.dp)
+                .alpha(if (enabled || busy) 1f else DISABLED_ALPHA)
+                .clip(CircleShape)
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Galleria") { onPick() }
+                .background(ButtonGrey)
+                .semantics { contentDescription = "Galleria" }
+                .rotate(angle),
+        ) {
+            val u = size.minDimension / 40
+            val stroke = Stroke(width = 1.8f * u, cap = StrokeCap.Round)
+            drawRoundRect(
+                OnDark, Offset(12 * u, 12 * u), Size(16 * u, 16 * u), style = stroke,
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.5f * u),
+            )
+            val hills = Path().apply {
+                moveTo(14 * u, 25 * u)
+                lineTo(18 * u, 20 * u)
+                lineTo(21 * u, 23 * u)
+                lineTo(23 * u, 21 * u)
+                lineTo(26 * u, 25 * u)
+                close()
+            }
+            drawPath(hills, OnDark)
+            drawCircle(OnDark, 1.6f * u, Offset(23.5f * u, 16.5f * u))
         }
-        drawPath(hills, Color.White.copy(alpha = 0.7f))
-        drawCircle(Color.White.copy(alpha = 0.7f), 1.8f * u, Offset(16 * u, 8 * u))
     }
 }
 
 /**
  * The switch between the back and the front camera, two arrows chasing each
- * other in a dark circle, as in the stock camera app. Dimmed and inert
- * unless [enabled].
+ * other in a grey circle, as in the stock camera app: the arrows turn half a
+ * turn at each tap, on top of [angle]. Dimmed and inert unless [enabled].
  */
 @Composable
-fun SwitchCameraButton(enabled: Boolean, onSwitch: () -> Unit, modifier: Modifier = Modifier) {
+fun SwitchCameraButton(enabled: Boolean, angle: Float, onSwitch: () -> Unit, modifier: Modifier = Modifier) {
+    var turns by remember { mutableFloatStateOf(0f) }
+    val spin by animateFloatAsState(turns * 180f, tween(360), label = "switch")
     Box(
         modifier
-            .size(44.dp)
+            .size(50.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(CircleShape)
-            .background(Color.White.copy(alpha = 0.16f))
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Cambia fotocamera") { onSwitch() }
+            .background(ButtonGrey)
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Cambia fotocamera") {
+                turns += 1
+                onSwitch()
+            }
             .semantics { contentDescription = "Cambia fotocamera" },
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(Modifier.size(24.dp)) {
+        Canvas(Modifier.size(26.dp).rotate(angle + spin)) {
             val u = size.minDimension / 24
             val r = 7 * u
             val c = Offset(size.width / 2, size.height / 2)
@@ -251,31 +351,38 @@ fun SwitchCameraButton(enabled: Boolean, onSwitch: () -> Unit, modifier: Modifie
 }
 
 /**
- * The zoom chips of the stock camera app: one per preset ([zoomPresets]), in
- * a row, or a column with the largest at the top if [vertical]. The lit one
- * ([activePreset]) is larger and reads the current [zoom]; a tap on a chip
- * sets its ratio. Dimmed and inert unless [enabled].
+ * The zoom chips of the stock camera app, in a translucent capsule at the
+ * preview's bottom: one per preset ([zoomPresets]). The lit one
+ * ([activePreset]) has a dark disc and reads the current [zoom] ("1×",
+ * "1,4×"); the others read just their ratio ("0,5", "2"). Each label turns
+ * by [angle]. A tap sets the chip's ratio. Dimmed and inert unless [enabled].
  */
 @Composable
 fun ZoomChips(
     presets: List<Float>,
     zoom: Float,
     onZoom: (Float) -> Unit,
+    angle: Float,
     modifier: Modifier = Modifier,
-    vertical: Boolean = false,
     enabled: Boolean = true,
 ) {
     val active = activePreset(presets, zoom)
-    val chips = @Composable {
-        val order = if (vertical) presets.indices.reversed() else presets.indices
-        for (i in order) {
+    Row(
+        modifier
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.35f))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (i in presets.indices) {
             val lit = i == active
             val label = if (lit) zoomLabel(zoom) else zoomLabel(presets[i]).removeSuffix("×")
             Box(
                 Modifier
-                    .size(if (lit) 40.dp else 32.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = if (lit) 0.6f else 0.4f))
                     .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Zoom ${zoomLabel(presets[i])}") { onZoom(presets[i]) }
                     .semantics {
                         contentDescription = "Zoom ${zoomLabel(presets[i])}"
@@ -283,54 +390,41 @@ fun ZoomChips(
                     },
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(
-                    label,
-                    style = labelStyle(if (lit) 11.5f else 10.5f, if (lit) Accent else OnDark)
-                        .copy(fontWeight = if (lit) FontWeight.SemiBold else FontWeight.Normal),
-                    softWrap = false,
-                )
+                Box(
+                    Modifier
+                        .size(if (lit) 38.dp else 28.dp)
+                        .background(Color.Black.copy(alpha = if (lit) 0.55f else 0.3f), CircleShape)
+                        .rotate(angle),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    BasicText(
+                        label,
+                        style = labelStyle(if (lit) 12.5f else 11f, Color.White)
+                            .copy(fontWeight = if (lit) FontWeight.SemiBold else FontWeight.Medium),
+                        softWrap = false,
+                    )
+                }
             }
         }
     }
-    val dimmed = modifier.alpha(if (enabled) 1f else DISABLED_ALPHA)
-    if (vertical) {
-        Column(dimmed, verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) { chips() }
-    } else {
-        Row(dimmed, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { chips() }
-    }
 }
 
-/** The mock's "texture" glyph in front of the slider. */
-@Composable
-fun TextureIcon(modifier: Modifier = Modifier) {
-    Canvas(modifier.size(18.dp)) {
-        val u = size.minDimension / 24
-        val stroke = Stroke(width = 1.8f * u, cap = StrokeCap.Round)
-        drawRoundRect(OnDark, Offset(3 * u, 3 * u), Size(18 * u, 18 * u), style = stroke,
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2 * u))
-        for (k in listOf(9f, 15f, 21f)) {
-            drawLine(OnDark, Offset(3 * u, k * u), Offset(k * u, 3 * u), 1.8f * u, StrokeCap.Round)
-        }
-        drawLine(OnDark, Offset(9 * u, 21 * u), Offset(21 * u, 9 * u), 1.8f * u, StrokeCap.Round)
-    }
-}
-
-/** A small dark pill, like the mock's chips. */
+/** A small dark pill. */
 @Composable
 fun Chip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Row(
         modifier
             .clip(RoundedCornerShape(50))
-            .background(Color.Black.copy(alpha = 0.55f))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+            .background(ButtonGrey)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) { content() }
 }
 
 /**
  * The LIVE chip: a red dot and the preview fps, or an amber dot while the
- * camera starts or the preview is paused. With [stats] (a tap toggles them)
+ * camera starts or the preview is paused. With stats (a tap toggles them)
  * it adds the core's ms per Frame and the Tessel count: the debug stats
  * overlay of #59.
  */
@@ -338,11 +432,11 @@ fun Chip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
 fun LiveChip(text: String, live: Boolean, onTap: () -> Unit, modifier: Modifier = Modifier) {
     Chip(modifier.clickable(enabled = live, onClickLabel = "Statistiche") { onTap() }) {
         Box(Modifier.size(6.dp).background(if (live) Color(0xFFFF5252) else Color(0xFFFFC107), CircleShape))
-        BasicText(text, style = labelStyle(10.5f, Color.White))
+        BasicText(text, style = labelStyle(11f, Color.White))
     }
 }
 
-/** The result screen's glyphs, drawn on a 24-unit grid like the mock's Material Symbols. */
+/** The result screen's glyphs, drawn on a 24-unit grid like Material Symbols. */
 enum class Glyph { BACK, DELETE, SHARE, DOWNLOAD, CHECK }
 
 @Composable
@@ -382,47 +476,49 @@ fun GlyphIcon(glyph: Glyph, color: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** A round icon button, 40 dp like the mock's `.ib`. */
+/** A round icon button, 48 dp, its glyph turned by [angle]. */
 @Composable
-fun IconButton(glyph: Glyph, label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun IconButton(glyph: Glyph, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, angle: Float = 0f) {
     Box(
         modifier
-            .size(40.dp)
+            .size(48.dp)
             .clip(CircleShape)
             .clickable(role = Role.Button, onClickLabel = label) { onClick() }
             .semantics { contentDescription = label },
         contentAlignment = Alignment.Center,
-    ) { GlyphIcon(glyph, OnDark, Modifier.size(22.dp)) }
+    ) { GlyphIcon(glyph, OnDark, Modifier.size(24.dp).rotate(angle)) }
 }
 
 /**
- * One of the result screen's actions, a pill 40 dp high: outlined in the
- * text colour, or [filled] white with dark text (Salva). Unless [enabled] it is
- * dimmed like the mock's disabled buttons and ignores taps ("Salvato").
+ * One of the result screen's actions, as in the Google Photos viewer: a
+ * glyph over its label, turned together by [angle]. Unless [enabled] it is
+ * dimmed and ignores taps ("Salvato").
  */
 @Composable
-fun ActionButton(
+fun BottomAction(
     text: String,
     glyph: Glyph,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    filled: Boolean = false,
+    angle: Float = 0f,
     enabled: Boolean = true,
 ) {
-    val content = if (filled) Color(0xFF111111) else OnDark
-    val shape = RoundedCornerShape(50)
-    Row(
+    Box(
         modifier
-            .height(40.dp)
+            .width(88.dp)
+            .height(64.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
-            .clip(shape)
-            .then(if (filled) Modifier.background(Color.White, shape) else Modifier.border(1.dp, OnDark, shape))
-            .clickable(enabled = enabled, role = Role.Button) { onClick() }
-            .padding(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, role = Role.Button) { onClick() },
+        contentAlignment = Alignment.Center,
     ) {
-        GlyphIcon(glyph, content)
-        BasicText(text, style = labelStyle(13.5f, content).copy(fontWeight = FontWeight.Medium), softWrap = false)
+        Column(
+            Modifier.rotate(angle),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            GlyphIcon(glyph, OnDark, Modifier.size(24.dp))
+            BasicText(text, style = labelStyle(12f).copy(fontWeight = FontWeight.Medium), softWrap = false)
+        }
     }
 }

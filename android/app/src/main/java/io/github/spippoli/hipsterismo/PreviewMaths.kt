@@ -104,3 +104,32 @@ class RollingWindow(private val windowNanos: Long = 1_000_000_000L) {
         if (times.isEmpty()) sum = 0.0
     }
 }
+
+/**
+ * The angle (degrees, clockwise) the icons turn to read upright while the
+ * phone is held at the `Surface.ROTATION_*` [rotation] ([captureRotationFor]):
+ * the screen stays in portrait, as in the stock camera app, and only the
+ * icons turn. Of the equivalent angles, the one nearest [current], so they
+ * turn the short way (an upside-down turn goes anticlockwise from 0).
+ */
+fun iconAngle(current: Float, rotation: Int): Float {
+    val target = rotation * 90f
+    val delta = ((target - current) % 360f + 540f) % 360f - 180f
+    return current + delta
+}
+
+/**
+ * How far the `min patch area` row, items [widths] apart by [gap], shifts so
+ * that item [index] is centred in [containerWidth], like the stock camera's
+ * mode row.
+ */
+fun selectorOffset(widths: List<Float>, gap: Float, index: Int, containerWidth: Float): Float {
+    if (widths.isEmpty()) return 0f
+    val i = index.coerceIn(0, widths.lastIndex)
+    val before = widths.subList(0, i).sum() + gap * i
+    return containerWidth / 2 - (before + widths[i] / 2)
+}
+
+/** The row's index after a horizontal drag of [dragPx] from [start]: one step per [stepPx], leftwards to larger steps. */
+fun swipedIndex(start: Int, dragPx: Float, stepPx: Float, count: Int): Int =
+    (start - Math.round(dragPx / stepPx)).coerceIn(0, count - 1)
