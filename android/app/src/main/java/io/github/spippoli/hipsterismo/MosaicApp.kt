@@ -68,8 +68,8 @@ fun photoCache(context: Context) = File(context.cacheDir, "photos")
 
 /**
  * The app once the camera is granted: the camera screen, and the result
- * screen of a photo from the shutter or the gallery. The slider's step and
- * the overlay toggle are shared by both, and survive rotation.
+ * screen of a photo from the shutter or the gallery. The slider's step
+ * survives rotation.
  *
  * A photo pauses the preview ([PreviewPipeline.paused]), then the pipeline's
  * thread decodes it (capped at 2048, upright) and makes its Mosaic at the
@@ -80,7 +80,6 @@ fun photoCache(context: Context) = File(context.cacheDir, "photos")
 fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
     val context = LocalContext.current
     var index by rememberSaveable { mutableIntStateOf(MinPatchArea.defaultIndex) }
-    var overlay by rememberSaveable { mutableStateOf(false) }
     var state by remember { mutableStateOf<PhotoState>(PhotoState.Live) }
     val main = context.mainExecutor
 
@@ -171,9 +170,9 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
     }
 
     when (val now = state) {
-        is PhotoState.Result -> ExportingResult(now, overlay, { overlay = !overlay }, ::backToLive)
+        is PhotoState.Result -> ExportingResult(now, ::backToLive)
         else -> CameraScreen(
-            pipeline, previewView, index, { index = it }, overlay, { overlay = !overlay },
+            pipeline, previewView, index, { index = it },
             busy = now is PhotoState.Processing, onShoot = onShoot, onPick = onPick,
         )
     }
@@ -184,13 +183,12 @@ private const val SNACKBAR_MS = 4_000L
 
 /**
  * The result screen of [result] with Salva and Condividi (#58, #66). Both
- * render the PNG off the UI thread ([MosaicExport.render], with the Contours
- * if [overlay] is on at that moment); Salva saves it to the gallery once,
+ * render the PNG off the UI thread ([MosaicExport.render]); Salva saves it to the gallery once,
  * then shows the snackbar and turns into "Salvato"; Condividi writes it to
  * the share cache and opens the share sheet. A new result starts unsaved.
  */
 @Composable
-private fun ExportingResult(result: PhotoState.Result, overlay: Boolean, onOverlay: () -> Unit, onDiscard: () -> Unit) {
+private fun ExportingResult(result: PhotoState.Result, onDiscard: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var saved by remember(result) { mutableStateOf<Uri?>(null) }
@@ -202,16 +200,15 @@ private fun ExportingResult(result: PhotoState.Result, overlay: Boolean, onOverl
     fun export(failure: Int, write: (android.graphics.Bitmap) -> Uri, done: (Uri) -> Unit) {
         if (busy) return
         busy = true
-        val withContours = overlay
         scope.launch {
             try {
                 val uri = withContext(Dispatchers.Default) {
                     val start = System.nanoTime()
-                    val bitmap = MosaicExport.render(mosaic, withContours)
+                    val bitmap = MosaicExport.render(mosaic)
                     try {
                         write(bitmap).also {
-                            Log.i(PHOTO_TAG, "export %dx%d, overlay %b: %.0f ms".format(
-                                java.util.Locale.ROOT, bitmap.width, bitmap.height, withContours, (System.nanoTime() - start) / 1e6,
+                            Log.i(PHOTO_TAG, "export %dx%d: %.0f ms".format(
+                                java.util.Locale.ROOT, bitmap.width, bitmap.height, (System.nanoTime() - start) / 1e6,
                             ))
                         }
                     } finally {
@@ -236,7 +233,7 @@ private fun ExportingResult(result: PhotoState.Result, overlay: Boolean, onOverl
     }
 
     ResultScreen(
-        mosaic, result.minPatchArea, overlay, onOverlay,
+        mosaic, result.minPatchArea,
         onDiscard = onDiscard,
         onFirstDraw = { Log.i(PHOTO_TAG, result.timing.complete(mosaic, result.minPatchArea, SystemClock.elapsedRealtimeNanos()).line()) },
         saved = saved != null,

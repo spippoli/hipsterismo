@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
             MosaicExport.shareCache(this).deleteRecursively()
         }
         val previewView = PreviewView(this).apply {
-            scaleType = PreviewView.ScaleType.FILL_CENTER
+            scaleType = PreviewView.ScaleType.FIT_CENTER
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
         }
         setContent {

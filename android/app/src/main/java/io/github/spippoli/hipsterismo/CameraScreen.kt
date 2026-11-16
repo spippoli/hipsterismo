@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -47,13 +49,12 @@ import kotlinx.coroutines.delay
 
 /**
  * The camera screen, variant A "Fotocamera" (#57): the live Mosaic full
- * screen, cropped to fill, with the LIVE chip and the controls over it. In
- * portrait the slider and the gallery / shutter / overlay row sit in a bottom
+ * screen, whole and centred (not cropped), with the LIVE chip and the
+ * controls over it. In portrait the slider and the gallery / shutter row sit in a bottom
  * panel; in landscape the slider turns vertical on the left and the buttons
  * move to a column on the right.
  *
- * The slider's step [index] and the [overlay] toggle belong to the caller,
- * since the result screen shares the toggle. While [busy] (a photo is being
+ * The slider's step [index] belongs to the caller. While [busy] (a photo is being
  * processed) the last Mosaic stays frozen and dimmed, the chip reads "in
  * pausa", a ring spins on the shutter and every control is disabled.
  * [onShoot] and [onPick] are the shutter and the gallery thumbnail.
@@ -64,8 +65,6 @@ fun CameraScreen(
     previewView: PreviewView,
     index: Int,
     onIndex: (Int) -> Unit,
-    overlay: Boolean,
-    onOverlay: () -> Unit,
     busy: Boolean,
     onShoot: () -> Unit,
     onPick: () -> Unit,
@@ -119,12 +118,12 @@ fun CameraScreen(
     val previewLayer = @Composable { modifier: Modifier ->
         Box(modifier) {
             // The raw camera until the first Mosaic arrives; then the Mosaic
-            // covers it (same aspect ratio, both cropped to fill).
+            // covers it (same aspect ratio, both fit whole inside the view).
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
             mosaic?.let {
                 MosaicCanvas(
                     it, Modifier.fillMaxSize().background(Color.Black),
-                    crop = true, showContours = overlay, dim = busy, onDrawn = onDrawn,
+                    dim = busy, onDrawn = onDrawn,
                 )
             }
         }
@@ -163,7 +162,6 @@ fun CameraScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    OverlayButton(overlay, onOverlay, enabled = !busy)
                     Shutter(busy, onShoot)
                     GalleryThumb(!busy, onPick)
                 }
@@ -199,7 +197,8 @@ fun CameraScreen(
                 ) {
                     GalleryThumb(!busy, onPick)
                     Shutter(busy, onShoot)
-                    OverlayButton(overlay, onOverlay, enabled = !busy)
+                    // Keeps the shutter centred, opposite the gallery thumbnail.
+                    Spacer(Modifier.size(44.dp))
                 }
             }
         }

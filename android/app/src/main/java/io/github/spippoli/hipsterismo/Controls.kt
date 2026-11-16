@@ -206,36 +206,6 @@ fun GalleryThumb(enabled: Boolean, onPick: () -> Unit, modifier: Modifier = Modi
     }
 }
 
-/**
- * The Contour overlay toggle, a polyline icon in a circle that lights up when
- * [on]. Dimmed and inert unless [enabled].
- */
-@Composable
-fun OverlayButton(on: Boolean, onToggle: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    Box(
-        modifier
-            .size(40.dp)
-            .alpha(if (enabled) 1f else DISABLED_ALPHA)
-            .clip(CircleShape)
-            .background(if (on) Color.White.copy(alpha = 0.22f) else Color.Transparent)
-            .clickable(enabled = enabled, role = Role.Switch, onClickLabel = "Overlay dei Contour") { onToggle() }
-            .semantics {
-                contentDescription = "Overlay dei Contour"
-                stateDescription = if (on) "attivo" else "spento"
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(Modifier.size(22.dp)) { polyline() }
-    }
-}
-
-private fun DrawScope.polyline() {
-    val u = size.minDimension / 24
-    val nodes = listOf(Offset(4f, 18f), Offset(9f, 7f), Offset(15f, 16f), Offset(20f, 6f)).map { it * u }
-    for (i in 0 until nodes.lastIndex) drawLine(OnDark, nodes[i], nodes[i + 1], 1.8f * u, StrokeCap.Round)
-    for (n in nodes) drawRect(OnDark, n - Offset(2.2f * u, 2.2f * u), Size(4.4f * u, 4.4f * u))
-}
-
 /** The mock's "texture" glyph in front of the slider. */
 @Composable
 fun TextureIcon(modifier: Modifier = Modifier) {

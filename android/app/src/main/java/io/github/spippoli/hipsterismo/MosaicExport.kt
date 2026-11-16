@@ -16,21 +16,20 @@ import java.io.OutputStream
 
 /**
  * Salva and Condividi (#58, #66): a photo's Mosaic as a PNG at its working
- * size, drawn by the screen's own [drawMosaic] and [drawContours], saved to
+ * size, drawn by the screen's own [drawMosaic], saved to
  * MediaStore or written to the share cache.
  */
 object MosaicExport {
     /**
-     * [mosaic] drawn at its own size, one Frame pixel per pixel, with its
-     * Contours if [overlay]: the same calls and paints as [MosaicCanvas],
+     * [mosaic] drawn at its own size, one Frame pixel per pixel: the same
+     * call and paint as [MosaicCanvas],
      * through the same hardware renderer (a [Picture] into a hardware
      * Bitmap), copied into an ARGB_8888 Bitmap the PNG encoder takes.
      */
-    fun render(mosaic: Mosaic, overlay: Boolean): Bitmap {
+    fun render(mosaic: Mosaic): Bitmap {
         val picture = Picture()
         val canvas = picture.beginRecording(mosaic.width, mosaic.height)
         canvas.drawMosaic(mosaic, Paint().apply { color = Color.WHITE })
-        if (overlay) canvas.drawContours(mosaic, contourPaint())
         picture.endRecording()
         val hardware = Bitmap.createBitmap(picture)
         return try {

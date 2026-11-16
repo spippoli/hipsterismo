@@ -15,9 +15,8 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
 
 /**
- * Draws [mosaic] centred with its aspect ratio kept: covering the whole space
- * and cropped if [crop] (the live preview), or whole inside it. With
- * [showContours] its Contours are drawn over it. With [dim] it is darkened
+ * Draws [mosaic] whole, centred inside the space with its aspect ratio kept
+ * (the live preview and the result alike, never cropped). With [dim] it is darkened
  * and desaturated, the frozen preview while a photo is processed. [onDrawn]
  * runs after each draw, for the fps meter.
  */
@@ -25,25 +24,18 @@ import androidx.compose.ui.graphics.nativeCanvas
 fun MosaicCanvas(
     mosaic: Mosaic,
     modifier: Modifier = Modifier,
-    crop: Boolean = false,
-    showContours: Boolean = false,
     dim: Boolean = false,
     onDrawn: (Mosaic) -> Unit = {},
 ) {
     // drawVertices() modulates the vertex colours with the paint's, which
     // must be white to leave them as they are.
     val paint = remember { Paint().apply { color = android.graphics.Color.WHITE } }
-    val contourPaint = remember { contourPaint() }
     Canvas(modifier) {
         paint.colorFilter = if (dim) DIMMED else null
-        contourPaint.colorFilter = paint.colorFilter
-        val place = placement(mosaic.width, mosaic.height, size.width, size.height, crop)
+        val place = placement(mosaic.width, mosaic.height, size.width, size.height)
         translate(place.dx, place.dy) {
             scale(place.scale, pivot = Offset.Zero) {
-                drawIntoCanvas {
-                    it.nativeCanvas.drawMosaic(mosaic, paint)
-                    if (showContours) it.nativeCanvas.drawContours(mosaic, contourPaint)
-                }
+                drawIntoCanvas { it.nativeCanvas.drawMosaic(mosaic, paint) }
             }
         }
         onDrawn(mosaic)
@@ -68,18 +60,4 @@ fun Canvas.drawMosaic(mosaic: Mosaic, paint: Paint) {
         null, 0, 0,
         paint,
     )
-}
-
-/** The Contour overlay's paint: white lines, slightly see-through, with round ends. */
-fun contourPaint() = Paint().apply {
-    color = android.graphics.Color.argb(230, 255, 255, 255)
-    style = Paint.Style.STROKE
-    strokeCap = Paint.Cap.ROUND
-    isAntiAlias = true
-}
-
-/** Draws [mosaic]'s Contours in Frame pixel coordinates, [overlayStrokeWidth] wide. */
-fun Canvas.drawContours(mosaic: Mosaic, paint: Paint) {
-    paint.strokeWidth = overlayStrokeWidth(mosaic.width, mosaic.height)
-    drawLines(mosaic.contours, paint)
 }

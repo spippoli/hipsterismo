@@ -19,24 +19,23 @@ adb shell content query --uri content://media/external/images/media --projection
 ## Camera screen (#64)
 
 - [ ] **Permission denied:** on a fresh install, deny the camera. The explanation appears ("Serve la fotocamera"), with no crash. "Consenti la fotocamera" asks again; after a second denial the button reads "Apri le impostazioni" and opens the app's settings. Granting the camera there and coming back shows the preview.
-- [ ] **Permission granted:** the live Mosaic fills the screen, cropped, and follows the camera upright.
+- [ ] **Permission granted:** the live Mosaic shows whole, not cropped (black bands where the screen's aspect ratio differs from 4:3), and follows the camera upright. There is no Contour overlay button.
 - [ ] **Stats:** a tap on the LIVE chip adds the core's ms per Frame and the Tessel count; another tap hides them. The fps is measured below (Performance).
 - [ ] **Slider:** 8 steps, 8 to 1024 px², starting at 32. Moving it changes the Patches: fewer and larger Tessels towards 1024.
-- [ ] **Overlay:** the polyline button draws the Contours in white over the Mosaic and hides them again.
-- [ ] **Landscape:** rotate the phone both ways (90° and 270°). The Mosaic stays upright, the slider is vertical on the left (grossa at the top), and the overlay, shutter and gallery buttons are in a column on the right. The slider and overlay settings survive the rotation.
-- [ ] **Background and resume:** Home, then back to the app (its icon, recents or the launcher intent above): the preview resumes, with the same slider and overlay.
+- [ ] **Landscape:** rotate the phone both ways (90° and 270°). The Mosaic stays upright, the slider is vertical on the left (grossa at the top), and the shutter and gallery buttons are in a column on the right; the Mosaic is still whole. The slider setting survives the rotation.
+- [ ] **Background and resume:** Home, then back to the app (its icon, recents or the launcher intent above): the preview resumes, with the same slider.
 
 ## Photo to Mosaic (#65)
 
 Watch the photo times with `adb logcat -s hipsterismo-photo:I`. Each photo logs one `photo camera|gallery WxH: N ms to the result (capture N, decode N, core N = N%, other N), …` line, timed from the shutter tap (or the picker's answer) to the result screen's first draw.
 
-- [ ] **Shutter (processing state):** tap the shutter. The last preview Mosaic freezes and dims, the chip reads "in pausa" with an amber dot, a blue ring spins on the shutter, and the slider, gallery and overlay buttons are dimmed and ignore taps (a second shutter tap too). The system back gesture does nothing. The result screen follows.
+- [ ] **Shutter (processing state):** tap the shutter. The last preview Mosaic freezes and dims, the chip reads "in pausa" with an amber dot, a blue ring spins on the shutter, and the slider and gallery button are dimmed and ignore taps (a second shutter tap too). The system back gesture does nothing. The result screen follows.
 - [ ] **Upright:** take one photo holding the phone in portrait and one in each landscape turn. Each shows upright on the result screen, in the same orientation as the preview.
 - [ ] **Upright with auto-rotate off:** with "Rotazione automatica" off, the screen stays in portrait. A photo taken holding the phone in either landscape turn is still a landscape photo (`2048x1536` in its `photo camera` line) and shows upright, turned on the portrait screen; a portrait photo is `1536x2048`.
 - [ ] **Gallery:** the thumbnail opens the system photo picker, and no permission is asked. Cancelling it goes back to the live preview. Picking an image shows the same processing state, then its Mosaic, and logs a `photo gallery` line.
 - [ ] **Gallery, EXIF rotation:** pick a portrait photo taken with the camera app (stored sideways with an EXIF Orientation). Its Mosaic shows upright.
 - [ ] **Gallery, small image:** pick an image smaller than 2048 px on the long side, such as a screenshot. Its `photo gallery` line keeps its size.
-- [ ] **Result screen:** the Mosaic fits the screen whole, not cropped. The top bar has back, "Mosaic", the `min patch area` the photo was taken at (e.g. `32 px²`) and the overlay toggle. That toggle is the camera screen's and draws the Contours over the photo's Mosaic.
+- [ ] **Result screen:** the Mosaic fits the screen whole, not cropped. The top bar has back, "Mosaic", the `min patch area` the photo was taken at (e.g. `32 px²`); no overlay toggle.
 - [ ] **Never recomputed:** take a photo at 32 px², go back with Scarta, move the slider to 512 and take another. The second result's top bar reads `512 px²` and its Tessels are larger. The first one did not change while the slider moved, since the result screen has no slider.
 - [ ] **Scarta:** goes back to the camera at once, without asking, and the preview is live again (the LIVE chip and its fps come back). The system back gesture on the result screen does the same.
 - [ ] **Landscape:** in landscape the processing state looks as in portrait, with the ring on the shutter in the right-hand column. The result screen keeps the top bar, the Mosaic fills the left, and Scarta, Condividi and Salva are a column on the right. Turning the phone on the result screen keeps the same Mosaic.
@@ -44,7 +43,7 @@ Watch the photo times with `adb logcat -s hipsterismo-photo:I`. Each photo logs 
 
 ## Save and share (#66)
 
-Watch the export times with `adb logcat -s hipsterismo-photo:I` (one `export WxH, overlay true|false: N ms` line per Salva or Condividi). List the saved Mosaics with:
+Watch the export times with `adb logcat -s hipsterismo-photo:I` (one `export WxH: N ms` line per Salva or Condividi). List the saved Mosaics with:
 
 ```sh
 adb shell content query --uri content://media/external/images/media \
@@ -55,7 +54,7 @@ Delete every test image afterwards: `adb shell content delete --uri content://me
 
 - [ ] **Salva:** on a camera photo's result screen, tap Salva. The snackbar "Salvato in Immagini/Hipsterismo" with Apri appears at the bottom (over the buttons in portrait, in the middle half in landscape) and goes after about 4 s. One row appears, `hipsterismo_YYYYMMDD_HHMMSS.png` (the local time of the save) in `Pictures/Hipsterismo/`, at the working size (e.g. 1536×2048 in portrait).
 - [ ] **Salvato:** after Salva, the button is a dimmed "Salvato" with a tick, in portrait and in landscape. Tapping it adds no row.
-- [ ] **What you see:** with the overlay on, the saved PNG has the Contours, as thick relative to the image as on screen; with it off, it is the pure Mosaic. Pull it (`adb shell content read --uri content://media/external/images/media/<_id> > m.png`): `exiftool m.png` shows only PNG chunks (no EXIF, no GPS).
+- [ ] **What you see:** the saved PNG is the pure Mosaic, with no Contours. Pull it (`adb shell content read --uri content://media/external/images/media/<_id> > m.png`): `exiftool m.png` shows only PNG chunks (no EXIF, no GPS).
 - [ ] **Apri:** the snackbar's Apri opens the PNG in Google Photos (or the chosen viewer).
 - [ ] **Album:** Google Photos lists the Mosaic in the Hipsterismo album (Raccolta → Hipsterismo), dated at the save.
 - [ ] **Condividi:** opens the system share sheet with a preview of the Mosaic. No new row appears in MediaStore, and `adb shell run-as io.github.spippoli.hipsterismo ls cache/shared` holds exactly one PNG.

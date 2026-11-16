@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 /**
  * The result screen of variant A (#57): a photo's final Mosaic, fit to the
  * screen without cropping, under a top bar with back, the `min patch area` it
- * was made with and the overlay toggle; Scarta, Condividi and Salva below it
+ * was made with; Scarta, Condividi and Salva below it
  * in portrait, in a column on the right in landscape. Scarta (and back) go
  * back to the camera without asking. Once [saved], Salva is a disabled
  * "Salvato" (#58). While [busy] (a PNG being made) Condividi and Salva ignore
@@ -48,8 +48,6 @@ import androidx.compose.ui.unit.dp
 fun ResultScreen(
     mosaic: Mosaic,
     minPatchArea: Int,
-    overlay: Boolean,
-    onOverlay: () -> Unit,
     onDiscard: () -> Unit,
     onFirstDraw: () -> Unit,
     saved: Boolean = false,
@@ -85,12 +83,11 @@ fun ResultScreen(
             ) {
                 IconButton(Glyph.BACK, stringResource(R.string.back), onDiscard)
                 BasicText(stringResource(R.string.result_title), Modifier.weight(1f).padding(start = 6.dp), style = labelStyle(18f))
-                BasicText(stringResource(R.string.area_px2, minPatchArea), Modifier.padding(end = 6.dp), style = labelStyle(11.5f, MetaGrey))
-                OverlayButton(overlay, onOverlay)
+                BasicText(stringResource(R.string.area_px2, minPatchArea), Modifier.padding(end = 12.dp), style = labelStyle(11.5f, MetaGrey))
             }
             val picture = @Composable { modifier: Modifier ->
                 Box(modifier) {
-                    MosaicCanvas(mosaic, Modifier.fillMaxSize(), crop = false, showContours = overlay, onDrawn = onDrawn)
+                    MosaicCanvas(mosaic, Modifier.fillMaxSize(), onDrawn = onDrawn)
                 }
             }
             if (landscape) {
