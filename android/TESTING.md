@@ -22,14 +22,16 @@ adb shell content query --uri content://media/external/images/media --projection
 - [ ] **Permission granted:** the live Mosaic shows whole, not cropped (black bands where the screen's aspect ratio differs from 4:3), and follows the camera upright. There is no Contour overlay button.
 - [ ] **Stats:** a tap on the LIVE chip adds the core's ms per Frame and the Tessel count; another tap hides them. The fps is measured below (Performance).
 - [ ] **Slider:** 8 steps, 8 to 1024 px², starting at 32. Moving it changes the Patches: fewer and larger Tessels towards 1024.
-- [ ] **Landscape:** rotate the phone both ways (90° and 270°). The Mosaic stays upright, the slider is vertical on the left (grossa at the top), and the shutter and gallery buttons are in a column on the right; the Mosaic is still whole. The slider setting survives the rotation.
+- [ ] **Camera switch:** the button right of the shutter switches to the front camera: the Mosaic is mirrored like a mirror, and back again. A front photo comes out mirrored as the preview showed it, upright.
+- [ ] **Zoom:** the chips above the slider (0,5 / 1× / 2× on the back camera) jump to those ratios and the Mosaic follows; a pinch on the preview zooms smoothly between the camera's limits, and the lit chip reads the ratio (e.g. "1,4×"). A photo taken zoomed shows the zoomed framing. After a camera switch the zoom is back at 1×.
+- [ ] **Landscape:** rotate the phone both ways (90° and 270°). The Mosaic stays upright, the slider is vertical on the left (grossa at the top), the zoom chips run down the preview's right edge, and the switch, shutter and gallery buttons are in a column on the right; the Mosaic is still whole. The slider, the camera and the zoom survive the rotation.
 - [ ] **Background and resume:** Home, then back to the app (its icon, recents or the launcher intent above): the preview resumes, with the same slider.
 
 ## Photo to Mosaic (#65)
 
 Watch the photo times with `adb logcat -s hipsterismo-photo:I`. Each photo logs one `photo camera|gallery WxH: N ms to the result (capture N, decode N, core N = N%, other N), …` line, timed from the shutter tap (or the picker's answer) to the result screen's first draw.
 
-- [ ] **Shutter (processing state):** tap the shutter. The last preview Mosaic freezes and dims, the chip reads "in pausa" with an amber dot, a blue ring spins on the shutter, and the slider and gallery button are dimmed and ignore taps (a second shutter tap too). The system back gesture does nothing. The result screen follows.
+- [ ] **Shutter (processing state):** tap the shutter. The last preview Mosaic freezes and dims, the chip reads "in pausa" with an amber dot, a blue ring spins on the shutter, and the slider, the gallery button, the camera switch and the zoom chips are dimmed and ignore taps, as does a pinch (a second shutter tap too). The system back gesture does nothing. The result screen follows.
 - [ ] **Upright:** take one photo holding the phone in portrait and one in each landscape turn. Each shows upright on the result screen, in the same orientation as the preview.
 - [ ] **Upright with auto-rotate off:** with "Rotazione automatica" off, the screen stays in portrait. A photo taken holding the phone in either landscape turn is still a landscape photo (`2048x1536` in its `photo camera` line) and shows upright, turned on the portrait screen; a portrait photo is `1536x2048`.
 - [ ] **Gallery:** the thumbnail opens the system photo picker, and no permission is asked. Cancelling it goes back to the live preview. Picking an image shows the same processing state, then its Mosaic, and logs a `photo gallery` line.

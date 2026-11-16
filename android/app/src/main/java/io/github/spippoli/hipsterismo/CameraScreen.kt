@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,10 +36,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -54,9 +57,15 @@ import kotlinx.coroutines.delay
  * panel; in landscape the slider turns vertical on the left and the buttons
  * move to a column on the right.
  *
+ * As in the stock camera app, the button right of the shutter (top of the
+ * column in landscape) switches between the back and the front camera, the
+ * zoom chips (above the slider; down the preview's right edge in landscape)
+ * jump to the ultrawide, 1× or 2×, and a pinch on the preview zooms freely.
+ *
  * The slider's step [index] belongs to the caller. While [busy] (a photo is being
  * processed) the last Mosaic stays frozen and dimmed, the chip reads "in
- * pausa", a ring spins on the shutter and every control is disabled.
+ * pausa", a ring spins on the shutter and every control is disabled, the
+ * pinch included.
  * [onShoot] and [onPick] are the shutter and the gallery thumbnail.
  */
 @Composable
@@ -71,6 +80,10 @@ fun CameraScreen(
 ) {
     var stats by rememberSaveable { mutableStateOf(false) }
     val mosaic by pipeline.mosaic.collectAsState()
+    val camera by pipeline.camera.collectAsState()
+    val busyNow by rememberUpdatedState(busy)
+    val presets = zoomPresets(camera.minZoom, camera.maxZoom)
+    val canZoom = camera.maxZoom > camera.minZoom
     val minPatchArea = MinPatchArea.at(index)
     SideEffect { pipeline.minPatchArea = minPatchArea }
 
@@ -116,7 +129,13 @@ fun CameraScreen(
     val sliderLabel = stringResource(R.string.min_patch_area)
 
     val previewLayer = @Composable { modifier: Modifier ->
-        Box(modifier) {
+        Box(
+            modifier.pointerInput(pipeline) {
+                detectTransformGestures { _, _, zoom, _ ->
+                    if (!busyNow && zoom != 1f) pipeline.pinch(zoom)
+                }
+            },
+        ) {
             // The raw camera until the first Mosaic arrives; then the Mosaic
             // covers it (same aspect ratio, both fit whole inside the view).
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
@@ -153,6 +172,12 @@ fun CameraScreen(
                     Chip(start.align(Alignment.BottomStart).padding(start = 46.dp, bottom = 14.dp)) {
                         BasicText(areaText, style = labelStyle(10.5f, Color.White))
                     }
+                    if (canZoom) {
+                        ZoomChips(
+                            presets, camera.zoom, pipeline::setZoom,
+                            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp), vertical = true, enabled = !busy,
+                        )
+                    }
                 }
                 Column(
                     Modifier.fillMaxHeight()
@@ -162,6 +187,7 @@ fun CameraScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.SpaceEvenly,
                 ) {
+                    if (camera.canSwitch) SwitchCameraButton(!busy, pipeline::switchCamera)
                     Shutter(busy, onShoot)
                     GalleryThumb(!busy, onPick)
                 }
@@ -182,6 +208,12 @@ fun CameraScreen(
                     .padding(start = 18.dp, end = 18.dp, top = 40.dp, bottom = 26.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                if (canZoom) {
+                    ZoomChips(
+                        presets, camera.zoom, pipeline::setZoom,
+                        Modifier.align(Alignment.CenterHorizontally), enabled = !busy,
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     TextureIcon()
                     StepSlider(
@@ -197,8 +229,8 @@ fun CameraScreen(
                 ) {
                     GalleryThumb(!busy, onPick)
                     Shutter(busy, onShoot)
-                    // Keeps the shutter centred, opposite the gallery thumbnail.
-                    Spacer(Modifier.size(44.dp))
+                    // Without a second camera, a spacer keeps the shutter centred.
+                    if (camera.canSwitch) SwitchCameraButton(!busy, pipeline::switchCamera) else Spacer(Modifier.size(44.dp))
                 }
             }
         }

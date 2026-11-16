@@ -13,17 +13,20 @@ import android.util.Size
 import android.view.Display
 import android.view.OrientationEventListener
 import android.graphics.ImageDecoder
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.ZoomState
 import androidx.camera.core.Preview
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
 import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.Observer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -38,6 +41,10 @@ import java.util.concurrent.Executors
  * mirrored for the front camera, with an ADPF hint session asking for a fast
  * core. The latest Mosaic is [mosaic]; [coreMs] holds the core's times of the
  * last second.
+ *
+ * [camera] says which camera is on, whether there is another one to
+ * [switchCamera] to, and its zoom, which [setZoom] and [pinch] change. The
+ * zoom acts on the whole camera, so the Mosaic and the photo are zoomed too.
  *
  * A photo ([takePhoto], [processPhoto]) runs on the same thread, with the
  * preview [paused]: the thread whose hint keeps it on the X3 does the photo's
@@ -108,8 +115,31 @@ class PreviewPipeline(private val context: Context) {
         )
         .build()
 
+    /** The camera that is on and its zoom, for the camera screen's controls. */
+    data class CameraState(
+        val front: Boolean = false,
+        val canSwitch: Boolean = false,
+        val zoom: Float = 1f,
+        val minZoom: Float = 1f,
+        val maxZoom: Float = 1f,
+    )
+
+    private val _camera = MutableStateFlow(CameraState())
+    val camera: StateFlow<CameraState> = _camera
+
+    // Read by the analyzer's thread; set on the main thread before a bind.
+    @Volatile
     private var mirror = false
     private var provider: ProcessCameraProvider? = null
+    private var owner: LifecycleOwner? = null
+    private var bound: Camera? = null
+
+    // The last zoom asked for: a pinch builds on it, since the camera's
+    // ZoomState arrives a little later than the pinch's next step.
+    private var requestedZoom = 1f
+    private val zoomObserver = Observer<ZoomState> { zoom ->
+        _camera.value = _camera.value.copy(zoom = zoom.zoomRatio, minZoom = zoom.minZoomRatio, maxZoom = zoom.maxZoomRatio)
+    }
 
     // The rotation the Frames are made upright for follows the display, also
     // across a 180° turn, which recreates nothing.
@@ -141,23 +171,59 @@ class PreviewPipeline(private val context: Context) {
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
         analysis.setAnalyzer(executor, ::analyze)
         val future = ProcessCameraProvider.getInstance(context)
+        this.owner = owner
         future.addListener({
             val cameras = future.get()
             provider = cameras
-            val selector = when {
-                cameras.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA) -> CameraSelector.DEFAULT_BACK_CAMERA
-                else -> CameraSelector.DEFAULT_FRONT_CAMERA
-            }
-            mirror = selector == CameraSelector.DEFAULT_FRONT_CAMERA
-            cameras.unbindAll()
-            cameras.bindToLifecycle(owner, selector, preview, analysis, capture)
+            val back = cameras.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+            val front = cameras.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+            _camera.value = _camera.value.copy(canSwitch = back && front)
+            // The camera chosen before (the pipeline outlives a rotation), else the back one.
+            bind(if (back && front) _camera.value.front else !back)
         }, context.mainExecutor)
+    }
+
+    /** Binds the front camera if [front], else the back one; CameraX starts it at 1×. Main thread. */
+    private fun bind(front: Boolean) {
+        val cameras = provider ?: return
+        val owner = owner ?: return
+        val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+        bound?.cameraInfo?.zoomState?.removeObserver(zoomObserver)
+        cameras.unbindAll()
+        mirror = front
+        loggedFrame = false
+        val camera = cameras.bindToLifecycle(owner, selector, preview, analysis, capture)
+        bound = camera
+        requestedZoom = camera.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+        _camera.value = _camera.value.copy(front = front, zoom = requestedZoom)
+        camera.cameraInfo.zoomState.observe(owner, zoomObserver)
+    }
+
+    /** Switches between the back and the front camera, if the phone has both. Main thread. */
+    fun switchCamera() {
+        if (_camera.value.canSwitch) bind(!_camera.value.front)
+    }
+
+    /** Sets the zoom to [ratio], within the camera's range. Main thread. */
+    fun setZoom(ratio: Float) {
+        val camera = bound ?: return
+        val state = _camera.value
+        requestedZoom = ratio.coerceIn(state.minZoom, state.maxZoom)
+        camera.cameraControl.setZoomRatio(requestedZoom)
+    }
+
+    /** Scales the zoom by a pinch's [factor]. Main thread. */
+    fun pinch(factor: Float) {
+        val state = _camera.value
+        setZoom(pinchedZoom(requestedZoom, factor, state.minZoom, state.maxZoom))
     }
 
     /** Stops the camera and the preview thread. */
     fun stop() {
         displayManager.unregisterDisplayListener(displayListener)
         orientationListener.disable()
+        bound?.cameraInfo?.zoomState?.removeObserver(zoomObserver)
+        bound = null
         provider?.unbindAll()
         analysis.clearAnalyzer()
         executor.execute {
@@ -177,11 +243,13 @@ class PreviewPipeline(private val context: Context) {
 
     /**
      * Takes a photo into [file] (a JPEG, upright through its EXIF
-     * orientation), then calls [onSaved] or [onError] on the pipeline's
+     * orientation; from the front camera mirrored like the preview, as the
+     * stock camera saves selfies by default), then calls [onSaved] or [onError] on the pipeline's
      * thread.
      */
     fun takePhoto(file: File, onSaved: () -> Unit, onError: (Exception) -> Unit) {
-        val options = ImageCapture.OutputFileOptions.Builder(file).build()
+        val metadata = ImageCapture.Metadata().apply { isReversedHorizontal = mirror }
+        val options = ImageCapture.OutputFileOptions.Builder(file).setMetadata(metadata).build()
         capture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) = onSaved()
             override fun onError(exception: ImageCaptureException) = onError(exception)

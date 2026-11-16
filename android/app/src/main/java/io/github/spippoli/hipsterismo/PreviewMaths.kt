@@ -31,6 +31,40 @@ fun placement(frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: F
 }
 
 /**
+ * The zoom chips above the shutter, as in the stock camera app: the camera's
+ * widest ratio if it is under 1× (the ultrawide), then 1× and 2×, those the
+ * camera reaches. A camera with no zoom at all gets just 1×.
+ */
+fun zoomPresets(minZoom: Float, maxZoom: Float): List<Float> {
+    val presets = mutableListOf<Float>()
+    if (minZoom < 1f - ZOOM_EPSILON) presets += minZoom
+    for (ratio in listOf(1f, 2f)) if (ratio in minZoom - ZOOM_EPSILON..maxZoom + ZOOM_EPSILON) presets += ratio
+    return presets.ifEmpty { listOf(1f) }
+}
+
+/**
+ * Which of [presets] (ascending) is lit at [zoom]: the largest at or below
+ * it, so 1.4× lights the 1× chip, which then reads "1,4×"; the first one
+ * below them all.
+ */
+fun activePreset(presets: List<Float>, zoom: Float): Int =
+    presets.indexOfLast { it <= zoom + ZOOM_EPSILON }.coerceAtLeast(0)
+
+/** [zoom] as the chips write it, in Italian: "0,5×", "1×", "1,4×", "10×"; one decimal, none if it is .0. */
+fun zoomLabel(zoom: Float): String {
+    val tenths = Math.round(zoom * 10)
+    val whole = tenths / 10
+    val tenth = tenths % 10
+    return if (tenth == 0) "$whole×" else "$whole,$tenth×"
+}
+
+/** The zoom after a pinch that scaled the fingers' distance by [factor], within the camera's range. */
+fun pinchedZoom(zoom: Float, factor: Float, minZoom: Float, maxZoom: Float): Float =
+    (zoom * factor).coerceIn(minZoom, maxZoom)
+
+private const val ZOOM_EPSILON = 0.01f
+
+/**
  * The events of the last [windowNanos] and their values: the preview's fps
  * (Mosaics drawn in the last second) and the core's mean ms per Frame.
  * Thread-safe: the preview thread adds, the UI reads.
