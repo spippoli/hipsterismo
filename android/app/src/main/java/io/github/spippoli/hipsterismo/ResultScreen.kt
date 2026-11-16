@@ -1,6 +1,12 @@
 package io.github.spippoli.hipsterismo
 
 import androidx.compose.foundation.background
+import kotlin.math.roundToInt
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
@@ -9,13 +15,11 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -34,14 +38,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * The result screen of variant A (#57): a photo's final Mosaic, fit to the
- * screen without cropping, under a top bar with back, the `min patch area` it
- * was made with; Scarta, Condividi and Salva below it
- * in portrait, in a column on the right in landscape. Scarta (and back) go
+ * The result screen, laid out like the Google Photos viewer the stock camera
+ * opens: a photo's final Mosaic on black, fit without cropping, under a top
+ * bar with back and the `min patch area` it was made with, and Condividi,
+ * Salva and Scarta as glyphs over labels at the bottom. The screen stays in
+ * portrait; held in landscape, the Mosaic and the glyphs turn
+ * ([rememberIconAngle]). Scarta (and back) go
  * back to the camera without asking. Once [saved], Salva is a disabled
  * "Salvato" (#58). While [busy] (a PNG being made) Condividi and Salva ignore
  * taps. With [snackbar] the mock's snackbar "Salvato in Immagini/Hipsterismo"
- * shows at the bottom, its Apri calling [onOpen]. [onFirstDraw] runs once,
+ * shows above the actions, its Apri calling [onOpen]. [onFirstDraw] runs once,
  * after the Mosaic's first draw.
  */
 @Composable
@@ -64,54 +70,49 @@ fun ResultScreen(
             onFirstDraw()
         }
     }
-    val actions = @Composable { modifier: Modifier ->
-        ActionButton(stringResource(R.string.discard), Glyph.DELETE, onDiscard, modifier)
-        ActionButton(stringResource(R.string.share), Glyph.SHARE, { if (!busy) onShare() }, modifier)
-        if (saved) {
-            ActionButton(stringResource(R.string.saved), Glyph.CHECK, {}, modifier, filled = true, enabled = false)
-        } else {
-            ActionButton(stringResource(R.string.save), Glyph.DOWNLOAD, { if (!busy) onSave() }, modifier, filled = true)
-        }
-    }
+    val angle by rememberIconAngle()
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(PanelDark).windowInsetsPadding(WindowInsets.safeDrawing)) {
-        val landscape = maxWidth > maxHeight
+    Box(Modifier.fillMaxSize().background(PanelDark).windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(Modifier.fillMaxSize()) {
             Row(
-                Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 6.dp),
+                Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(Glyph.BACK, stringResource(R.string.back), onDiscard)
-                BasicText(stringResource(R.string.result_title), Modifier.weight(1f).padding(start = 6.dp), style = labelStyle(18f))
-                BasicText(stringResource(R.string.area_px2, minPatchArea), Modifier.padding(end = 12.dp), style = labelStyle(11.5f, MetaGrey))
+                IconButton(Glyph.BACK, stringResource(R.string.back), onDiscard, angle = angle)
+                Spacer(Modifier.weight(1f))
+                BasicText(stringResource(R.string.area_px2, minPatchArea), Modifier.padding(end = 16.dp), style = labelStyle(12f, MetaGrey))
             }
-            val picture = @Composable { modifier: Modifier ->
-                Box(modifier) {
-                    MosaicCanvas(mosaic, Modifier.fillMaxSize(), onDrawn = onDrawn)
-                }
+            // Held in landscape, the Mosaic turns with the icons, so it reads
+            // upright and takes the long side of the screen.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
+                val sideways = (angle / 90f).roundToInt() % 2 != 0
+                MosaicCanvas(
+                    mosaic,
+                    Modifier
+                        .requiredSize(if (sideways) maxHeight else maxWidth, if (sideways) maxWidth else maxHeight)
+                        .rotate(angle),
+                    onDrawn = onDrawn,
+                )
             }
-            if (landscape) {
-                Row(Modifier.fillMaxSize()) {
-                    picture(Modifier.weight(1f).fillMaxHeight().padding(bottom = 10.dp))
-                    Column(
-                        Modifier.fillMaxHeight().padding(start = 8.dp, end = 12.dp, bottom = 16.dp).width(130.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically),
-                    ) { actions(Modifier.fillMaxWidth()) }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                BottomAction(stringResource(R.string.share), Glyph.SHARE, { if (!busy) onShare() }, angle = angle)
+                if (saved) {
+                    BottomAction(stringResource(R.string.saved), Glyph.CHECK, {}, angle = angle, enabled = false)
+                } else {
+                    BottomAction(stringResource(R.string.save), Glyph.DOWNLOAD, { if (!busy) onSave() }, angle = angle)
                 }
-            } else {
-                picture(Modifier.weight(1f).fillMaxWidth())
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 32.dp, bottom = 24.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-                ) { actions(Modifier) }
+                BottomAction(stringResource(R.string.discard), Glyph.DELETE, onDiscard, angle = angle)
             }
         }
         if (snackbar) {
             Snackbar(
                 stringResource(R.string.saved_in), stringResource(R.string.open), onOpen,
                 Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = 18.dp)
-                    .then(if (landscape) Modifier.fillMaxWidth(0.5f) else Modifier.fillMaxWidth().padding(horizontal = 12.dp)),
+                    .padding(start = 12.dp, end = 12.dp, bottom = 96.dp)
+                    .fillMaxWidth(),
             )
         }
     }

@@ -11,20 +11,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -42,7 +35,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
@@ -51,21 +43,20 @@ import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 
 /**
- * The camera screen, variant A "Fotocamera" (#57): the live Mosaic full
- * screen, whole and centred (not cropped), with the LIVE chip and the
- * controls over it. In portrait the slider and the gallery / shutter row sit in a bottom
- * panel; in landscape the slider turns vertical on the left and the buttons
- * move to a column on the right.
+ * The camera screen, laid out like the stock Pixel camera app: a top bar
+ * with the LIVE chip, the live Mosaic in a 3:4 viewfinder under it (whole,
+ * not cropped) with the zoom chips at its bottom, then on black the `min
+ * patch area` row where the camera has its modes, and the gallery button,
+ * the shutter and the camera switch. The screen stays in portrait; held in
+ * landscape, only the icons and the zoom labels turn ([rememberIconAngle]).
  *
- * As in the stock camera app, the button right of the shutter (top of the
- * column in landscape) switches between the back and the front camera, the
- * zoom chips (above the slider; down the preview's right edge in landscape)
- * jump to the ultrawide, 1× or 2×, and a pinch on the preview zooms freely.
+ * The zoom chips jump to the ultrawide, 1× or 2×, and a pinch on the
+ * viewfinder zooms freely.
  *
- * The slider's step [index] belongs to the caller. While [busy] (a photo is being
+ * The row's step [index] belongs to the caller. While [busy] (a photo is being
  * processed) the last Mosaic stays frozen and dimmed, the chip reads "in
- * pausa", a ring spins on the shutter and every control is disabled, the
- * pinch included.
+ * pausa", a ring spins around the gallery button and every control is
+ * disabled, the pinch included.
  * [onShoot] and [onPick] are the shutter and the gallery thumbnail.
  */
 @Composable
@@ -86,7 +77,6 @@ fun CameraScreen(
     val canZoom = camera.maxZoom > camera.minZoom
     val minPatchArea = MinPatchArea.at(index)
     SideEffect { pipeline.minPatchArea = minPatchArea }
-
 
     // fps: Mosaics drawn in the last second, counted once each.
     val drawn = remember { RollingWindow() }
@@ -125,117 +115,68 @@ fun CameraScreen(
         stats -> stringResource(R.string.live_stats, fps, coreMs, mosaic?.tesselCount ?: 0)
         else -> stringResource(R.string.live_fps, fps)
     }
-    val areaText = stringResource(R.string.area_px2, minPatchArea)
-    val sliderLabel = stringResource(R.string.min_patch_area)
+    val angle by rememberIconAngle()
 
-    val previewLayer = @Composable { modifier: Modifier ->
-        Box(
-            modifier.pointerInput(pipeline) {
-                detectTransformGestures { _, _, zoom, _ ->
-                    if (!busyNow && zoom != 1f) pipeline.pinch(zoom)
-                }
-            },
-        ) {
-            // The raw camera until the first Mosaic arrives; then the Mosaic
-            // covers it (same aspect ratio, both fit whole inside the view).
-            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
-            mosaic?.let {
-                MosaicCanvas(
-                    it, Modifier.fillMaxSize().background(Color.Black),
-                    dim = busy, onDrawn = onDrawn,
-                )
+    BoxWithConstraints(
+        Modifier.fillMaxSize().background(PanelDark).windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
+        // The 3:4 viewfinder under the top bar, as wide as the screen; on a
+        // short screen it gives way so the controls keep their room.
+        val previewHeight = minOf(maxWidth * 4 / 3, maxHeight - TOP_BAR - MIN_CONTROLS)
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.fillMaxWidth().height(TOP_BAR).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                LiveChip(chipText, live, { stats = !stats })
             }
-        }
-    }
-
-    BoxWithConstraints(Modifier.fillMaxSize().background(PanelDark)) {
-        if (maxWidth > maxHeight) {
-            Row(Modifier.fillMaxSize()) {
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                    previewLayer(Modifier.fillMaxSize())
-                    val start = Modifier.windowInsetsPadding(
-                        WindowInsets.safeDrawing.only(WindowInsetsSides.Start + WindowInsetsSides.Vertical),
-                    )
-                    LiveChip(chipText, live, { stats = !stats }, start.align(Alignment.TopStart).padding(start = 46.dp, top = 12.dp))
-                    Column(
-                        start.align(Alignment.CenterStart).fillMaxHeight().padding(start = 4.dp, top = 44.dp, bottom = 30.dp).width(42.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        BasicText(stringResource(R.string.coarse), style = labelStyle(10f), softWrap = false)
-                        StepSlider(
-                            index, MinPatchArea.steps.size, onIndex, sliderLabel, areaText,
-                            Modifier.weight(1f).fillMaxWidth(), vertical = true, enabled = !busy,
-                        )
-                        BasicText(stringResource(R.string.fine), style = labelStyle(10f), softWrap = false)
+            Box(
+                Modifier.fillMaxWidth().height(previewHeight).pointerInput(pipeline) {
+                    detectTransformGestures { _, _, zoom, _ ->
+                        if (!busyNow && zoom != 1f) pipeline.pinch(zoom)
                     }
-                    Chip(start.align(Alignment.BottomStart).padding(start = 46.dp, bottom = 14.dp)) {
-                        BasicText(areaText, style = labelStyle(10.5f, Color.White))
-                    }
-                    if (canZoom) {
-                        ZoomChips(
-                            presets, camera.zoom, pipeline::setZoom,
-                            Modifier.align(Alignment.CenterEnd).padding(end = 12.dp), vertical = true, enabled = !busy,
-                        )
-                    }
-                }
-                Column(
-                    Modifier.fillMaxHeight()
-                        .background(PanelDark)
-                        .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.End + WindowInsetsSides.Vertical))
-                        .width(110.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceEvenly,
-                ) {
-                    if (camera.canSwitch) SwitchCameraButton(!busy, pipeline::switchCamera)
-                    Shutter(busy, onShoot)
-                    GalleryThumb(!busy, onPick)
-                }
-            }
-        } else {
-            previewLayer(Modifier.fillMaxSize())
-            LiveChip(
-                chipText, live, { stats = !stats },
-                Modifier.align(Alignment.TopStart)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
-                    .padding(start = 14.dp, top = 8.dp),
-            )
-            Column(
-                Modifier.align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))))
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(start = 18.dp, end = 18.dp, top = 40.dp, bottom = 26.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                },
             ) {
+                // The raw camera until the first Mosaic arrives; then the Mosaic
+                // covers it (same aspect ratio, both fit whole inside the view).
+                AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+                mosaic?.let {
+                    MosaicCanvas(
+                        it, Modifier.fillMaxSize().background(Color.Black),
+                        dim = busy, onDrawn = onDrawn,
+                    )
+                }
                 if (canZoom) {
                     ZoomChips(
-                        presets, camera.zoom, pipeline::setZoom,
-                        Modifier.align(Alignment.CenterHorizontally), enabled = !busy,
+                        presets, camera.zoom, pipeline::setZoom, angle,
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp), enabled = !busy,
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TextureIcon()
-                    StepSlider(
-                        index, MinPatchArea.steps.size, onIndex, sliderLabel, areaText,
-                        Modifier.weight(1f).height(28.dp), enabled = !busy,
-                    )
-                    BasicText(areaText, Modifier.widthIn(min = 58.dp), style = labelStyle().copy(textAlign = TextAlign.End))
-                }
+            }
+            Column(
+                Modifier.fillMaxWidth().weight(1f).padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                PatchAreaSelector(index, onIndex, stringResource(R.string.min_patch_area), enabled = !busy)
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 28.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GalleryThumb(!busy, onPick)
-                    Shutter(busy, onShoot)
-                    // Without a second camera, a spacer keeps the shutter centred.
-                    if (camera.canSwitch) SwitchCameraButton(!busy, pipeline::switchCamera) else Spacer(Modifier.size(44.dp))
+                    Box(Modifier.size(SIDE_BUTTON), contentAlignment = Alignment.Center) {
+                        GalleryThumb(!busy, busy, angle, onPick)
+                    }
+                    Shutter(!busy, onShoot)
+                    // Without a second camera, the empty box keeps the shutter centred.
+                    Box(Modifier.size(SIDE_BUTTON), contentAlignment = Alignment.Center) {
+                        if (camera.canSwitch) SwitchCameraButton(!busy, angle, pipeline::switchCamera)
+                    }
                 }
             }
         }
     }
 }
+
+private val TOP_BAR = 56.dp
+private val MIN_CONTROLS = 170.dp
+private val SIDE_BUTTON = 60.dp
 
 /**
  * Shown instead of the camera while the CAMERA permission is denied: why the

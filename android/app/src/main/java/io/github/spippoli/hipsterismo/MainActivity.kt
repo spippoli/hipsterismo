@@ -31,8 +31,9 @@ import androidx.lifecycle.LifecycleEventObserver
  * The app opens on the camera screen ([MosaicApp]). Without the CAMERA permission it asks
  * once, and while the permission is denied it shows why it is needed.
  *
- * The activity handles rotation itself (`configChanges`), so the camera keeps
- * running and the layout switches between portrait and landscape.
+ * The screen stays in portrait, as in the stock camera app: held in
+ * landscape, only the icons turn. The activity still handles configuration
+ * changes itself (`configChanges`), so the camera keeps running.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
