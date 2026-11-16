@@ -125,8 +125,8 @@ fun CameraScreen(
         stats -> stringResource(R.string.live_stats, fps, coreMs, mosaic?.tesselCount ?: 0)
         else -> stringResource(R.string.live_fps, fps)
     }
-    val areaText = stringResource(R.string.area_px2, minPatchArea)
-    val sliderLabel = stringResource(R.string.min_patch_area)
+    val grainText = stringResource(R.string.grain_value, MinPatchArea.grain(minPatchArea))
+    val sliderLabel = stringResource(R.string.grain)
 
     val previewLayer = @Composable { modifier: Modifier ->
         Box(
@@ -164,13 +164,13 @@ fun CameraScreen(
                     ) {
                         BasicText(stringResource(R.string.coarse), style = labelStyle(10f), softWrap = false)
                         StepSlider(
-                            index, MinPatchArea.steps.size, onIndex, sliderLabel, areaText,
+                            index, MinPatchArea.steps.size, onIndex, sliderLabel, grainText,
                             Modifier.weight(1f).fillMaxWidth(), vertical = true, enabled = !busy,
                         )
                         BasicText(stringResource(R.string.fine), style = labelStyle(10f), softWrap = false)
                     }
                     Chip(start.align(Alignment.BottomStart).padding(start = 46.dp, bottom = 14.dp)) {
-                        BasicText(areaText, style = labelStyle(10.5f, Color.White))
+                        BasicText(grainText, style = labelStyle(10.5f, Color.White))
                     }
                     if (canZoom) {
                         ZoomChips(
@@ -215,12 +215,15 @@ fun CameraScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    TextureIcon()
+                    // From fine on the left to grossa on the right, as the
+                    // landscape slider runs from fine at the bottom.
+                    BasicText(stringResource(R.string.fine), style = labelStyle(10f), softWrap = false)
                     StepSlider(
-                        index, MinPatchArea.steps.size, onIndex, sliderLabel, areaText,
+                        index, MinPatchArea.steps.size, onIndex, sliderLabel, grainText,
                         Modifier.weight(1f).height(28.dp), enabled = !busy,
                     )
-                    BasicText(areaText, Modifier.widthIn(min = 58.dp), style = labelStyle().copy(textAlign = TextAlign.End))
+                    BasicText(stringResource(R.string.coarse), style = labelStyle(10f), softWrap = false)
+                    BasicText(grainText, Modifier.widthIn(min = 52.dp), style = labelStyle().copy(textAlign = TextAlign.End))
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp),

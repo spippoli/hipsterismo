@@ -1,6 +1,7 @@
 package io.github.spippoli.hipsterismo
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,6 +13,15 @@ class PreviewMathsTest {
         assertEquals(NativeMosaic.DEFAULT_MIN_PATCH_AREA, MinPatchArea.DEFAULT)
         assertEquals(8, MinPatchArea.at(-3))
         assertEquals(1024, MinPatchArea.at(99))
+    }
+
+    @Test
+    fun theGrainRunsFromOneFineToEightCoarse() {
+        assertEquals(1, MinPatchArea.grain(8))
+        assertEquals(3, MinPatchArea.grain(MinPatchArea.DEFAULT))
+        assertEquals(8, MinPatchArea.grain(1024))
+        assertEquals((1..8).toList(), MinPatchArea.steps.map(MinPatchArea::grain))
+        assertThrows(IllegalArgumentException::class.java) { MinPatchArea.grain(33) }
     }
 
     @Test

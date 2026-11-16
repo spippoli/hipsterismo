@@ -300,21 +300,6 @@ fun ZoomChips(
     }
 }
 
-/** The mock's "texture" glyph in front of the slider. */
-@Composable
-fun TextureIcon(modifier: Modifier = Modifier) {
-    Canvas(modifier.size(18.dp)) {
-        val u = size.minDimension / 24
-        val stroke = Stroke(width = 1.8f * u, cap = StrokeCap.Round)
-        drawRoundRect(OnDark, Offset(3 * u, 3 * u), Size(18 * u, 18 * u), style = stroke,
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2 * u))
-        for (k in listOf(9f, 15f, 21f)) {
-            drawLine(OnDark, Offset(3 * u, k * u), Offset(k * u, 3 * u), 1.8f * u, StrokeCap.Round)
-        }
-        drawLine(OnDark, Offset(9 * u, 21 * u), Offset(21 * u, 9 * u), 1.8f * u, StrokeCap.Round)
-    }
-}
-
 /** A small dark pill, like the mock's chips. */
 @Composable
 fun Chip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {

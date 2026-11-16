@@ -13,6 +13,16 @@ object MinPatchArea {
 
     /** The step for slider index [index], clamped to the ends. */
     fun at(index: Int): Int = steps[index.coerceIn(0, steps.lastIndex)]
+
+    /**
+     * The Grain as the app shows it, with no unit: 1 (fine, 8 px²) to 8
+     * (grossa, 1024 px²), since the px² hold only at 320×240. [area] is one of [steps].
+     */
+    fun grain(area: Int): Int {
+        val index = steps.indexOf(area)
+        require(index >= 0) { "$area px² is not a slider step" }
+        return index + 1
+    }
 }
 
 /** A Frame drawn on screen: Frame pixel (x, y) lands at (dx + x · scale, dy + y · scale). */

@@ -5,8 +5,8 @@
     <string name="paused">in pausa</string>
     <string name="live_fps">LIVE · %1$.0f fps</string>
     <string name="live_stats">LIVE · %1$.1f fps · core %2$.1f ms · %3$d Tessel</string>
-    <string name="area_px2">%1$d px²</string>
-    <string name="min_patch_area">Min patch area</string>
+    <string name="grain">Grana</string>
+    <string name="grain_value">grana %1$d</string>
     <string name="coarse">grossa</string>
     <string name="fine">fine</string>
     <string name="permission_title">Serve la fotocamera</string>
