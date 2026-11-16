@@ -37,6 +37,53 @@ class PreviewMathsTest {
     fun emptyFramePlacementIsIdentity() = assertEquals(Placement(1f, 0f, 0f), placement(0, 0, 100f, 100f))
 
     @Test
+    fun zoomPresetsAreThoseTheCameraReaches() {
+        // A back camera with an ultrawide, up to 8× digital.
+        assertEquals(listOf(0.5f, 1f, 2f), zoomPresets(0.5f, 8f))
+        // No ultrawide.
+        assertEquals(listOf(1f, 2f), zoomPresets(1f, 8f))
+        // A front camera that only reaches 1.8×.
+        assertEquals(listOf(1f), zoomPresets(1f, 1.8f))
+        // No zoom at all, or a range that misses 1× and 2×.
+        assertEquals(listOf(1f), zoomPresets(1f, 1f))
+        assertEquals(listOf(1f), zoomPresets(1.2f, 1.8f))
+        // A ratio a hair under 1 is 1, not an ultrawide.
+        assertEquals(listOf(1f, 2f), zoomPresets(0.995f, 4f))
+    }
+
+    @Test
+    fun theLitChipIsTheLargestAtOrBelowTheZoom() {
+        val presets = listOf(0.5f, 1f, 2f)
+        assertEquals(0, activePreset(presets, 0.5f))
+        assertEquals(0, activePreset(presets, 0.8f))
+        assertEquals(1, activePreset(presets, 1f))
+        assertEquals(1, activePreset(presets, 0.995f))
+        assertEquals(1, activePreset(presets, 1.9f))
+        assertEquals(2, activePreset(presets, 2f))
+        assertEquals(2, activePreset(presets, 8f))
+        assertEquals(0, activePreset(listOf(1f, 2f), 0.7f))
+    }
+
+    @Test
+    fun zoomLabelsHaveOneItalianDecimal() {
+        assertEquals("0,5×", zoomLabel(0.5f))
+        assertEquals("0,6×", zoomLabel(0.56f))
+        assertEquals("1×", zoomLabel(1f))
+        assertEquals("1×", zoomLabel(1.04f))
+        assertEquals("1,4×", zoomLabel(1.4f))
+        assertEquals("2×", zoomLabel(1.98f))
+        assertEquals("10×", zoomLabel(10f))
+    }
+
+    @Test
+    fun aPinchScalesTheZoomWithinTheRange() {
+        assertEquals(2f, pinchedZoom(1f, 2f, 0.5f, 8f), 1e-6f)
+        assertEquals(0.75f, pinchedZoom(1.5f, 0.5f, 0.5f, 8f), 1e-6f)
+        assertEquals(0.5f, pinchedZoom(0.6f, 0.5f, 0.5f, 8f), 0f)
+        assertEquals(8f, pinchedZoom(6f, 2f, 0.5f, 8f), 0f)
+    }
+
+    @Test
     fun rollingWindowCountsTheLastSecond() {
         val window = RollingWindow()
         val ms = 1_000_000L

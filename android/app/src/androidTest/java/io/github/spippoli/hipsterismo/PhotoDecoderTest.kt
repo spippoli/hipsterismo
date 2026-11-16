@@ -106,6 +106,26 @@ class PhotoDecoderTest {
     }
 
     @Test
+    fun aMirroredExifJpegComesOutUpright() {
+        // The front camera's photos are saved mirrored like the preview,
+        // which CameraX writes as a mirrored EXIF orientation. Each stored
+        // transform here is its own inverse.
+        val image = upright()
+        val stored = listOf(
+            2 to Matrix().apply { postScale(-1f, 1f) }, // flipped left to right
+            4 to Matrix().apply { postScale(1f, -1f) }, // flipped top to bottom
+            5 to Matrix().apply { postRotate(90f); postScale(-1f, 1f) }, // transposed
+            7 to Matrix().apply { postRotate(90f); postScale(1f, -1f) }, // transversed
+        )
+        for ((orientation, matrix) in stored) {
+            val turned = Bitmap.createBitmap(image, 0, 0, image.width, image.height, matrix, false)
+            val out = ByteArrayOutputStream()
+            turned.compress(Bitmap.CompressFormat.JPEG, 95, out)
+            assertUpright(decode(withOrientation(out.toByteArray(), orientation)), "EXIF orientation $orientation")
+        }
+    }
+
+    @Test
     fun theDecodedBitmapIsWhatTheCoreTakes() {
         val bitmap = decode(jpeg(upright(), -90f, 6))
         assertEquals(Bitmap.Config.ARGB_8888, bitmap.config)

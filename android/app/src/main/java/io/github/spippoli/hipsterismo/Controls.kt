@@ -15,6 +15,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -50,7 +51,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 // The camera screen's controls, drawn like the mock's variant A (#57).
 
@@ -203,6 +206,97 @@ fun GalleryThumb(enabled: Boolean, onPick: () -> Unit, modifier: Modifier = Modi
         }
         drawPath(hills, Color.White.copy(alpha = 0.7f))
         drawCircle(Color.White.copy(alpha = 0.7f), 1.8f * u, Offset(16 * u, 8 * u))
+    }
+}
+
+/**
+ * The switch between the back and the front camera, two arrows chasing each
+ * other in a dark circle, as in the stock camera app. Dimmed and inert
+ * unless [enabled].
+ */
+@Composable
+fun SwitchCameraButton(enabled: Boolean, onSwitch: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .size(44.dp)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.16f))
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Cambia fotocamera") { onSwitch() }
+            .semantics { contentDescription = "Cambia fotocamera" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.size(24.dp)) {
+            val u = size.minDimension / 24
+            val r = 7 * u
+            val c = Offset(size.width / 2, size.height / 2)
+            val stroke = Stroke(width = 1.8f * u, cap = StrokeCap.Round)
+            for (start in listOf(200f, 20f)) {
+                drawArc(OnDark, start, 140f, false, c - Offset(r, r), Size(2 * r, 2 * r), style = stroke)
+                // An arrowhead at the arc's end, pointing on clockwise.
+                val a = Math.toRadians((start + 140f).toDouble())
+                val radial = Offset(cos(a).toFloat(), sin(a).toFloat())
+                val tangent = Offset(-radial.y, radial.x)
+                val end = c + radial * r
+                val head = Path().apply {
+                    moveTo((end + tangent * 3f * u).x, (end + tangent * 3f * u).y)
+                    lineTo((end + radial * 2.6f * u).x, (end + radial * 2.6f * u).y)
+                    lineTo((end - radial * 2.6f * u).x, (end - radial * 2.6f * u).y)
+                    close()
+                }
+                drawPath(head, OnDark)
+            }
+        }
+    }
+}
+
+/**
+ * The zoom chips of the stock camera app: one per preset ([zoomPresets]), in
+ * a row, or a column with the largest at the top if [vertical]. The lit one
+ * ([activePreset]) is larger and reads the current [zoom]; a tap on a chip
+ * sets its ratio. Dimmed and inert unless [enabled].
+ */
+@Composable
+fun ZoomChips(
+    presets: List<Float>,
+    zoom: Float,
+    onZoom: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    vertical: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val active = activePreset(presets, zoom)
+    val chips = @Composable {
+        val order = if (vertical) presets.indices.reversed() else presets.indices
+        for (i in order) {
+            val lit = i == active
+            val label = if (lit) zoomLabel(zoom) else zoomLabel(presets[i]).removeSuffix("×")
+            Box(
+                Modifier
+                    .size(if (lit) 40.dp else 32.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = if (lit) 0.6f else 0.4f))
+                    .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Zoom ${zoomLabel(presets[i])}") { onZoom(presets[i]) }
+                    .semantics {
+                        contentDescription = "Zoom ${zoomLabel(presets[i])}"
+                        if (lit) stateDescription = "zoom attuale ${zoomLabel(zoom)}"
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    label,
+                    style = labelStyle(if (lit) 11.5f else 10.5f, if (lit) Accent else OnDark)
+                        .copy(fontWeight = if (lit) FontWeight.SemiBold else FontWeight.Normal),
+                    softWrap = false,
+                )
+            }
+        }
+    }
+    val dimmed = modifier.alpha(if (enabled) 1f else DISABLED_ALPHA)
+    if (vertical) {
+        Column(dimmed, verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) { chips() }
+    } else {
+        Row(dimmed, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { chips() }
     }
 }
 
