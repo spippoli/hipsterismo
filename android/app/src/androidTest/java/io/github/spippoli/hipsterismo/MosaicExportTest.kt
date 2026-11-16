@@ -55,18 +55,13 @@ class MosaicExportTest {
     @Test
     fun thePngIsTheScreensDrawingAtTheWorkingSize() {
         val mosaic = NativeMosaic.fromBitmap(fixture())
-        val plain = MosaicExport.render(mosaic, overlay = false)
+        val plain = MosaicExport.render(mosaic)
         assertEquals(mosaic.width, plain.width)
         assertEquals(mosaic.height, plain.height)
         val plainPixels = pixels(plain)
         // Only Tessel colours, as in MosaicDrawingTest, and opaque.
         val tesselColours = mosaic.colors.toSet()
         assertEquals("pixels without a Tessel's colour", 0, plainPixels.count { it !in tesselColours })
-
-        // The overlay draws over some pixels, and only lightens them.
-        val withContours = pixels(MosaicExport.render(mosaic, overlay = true))
-        val changed = plainPixels.indices.count { plainPixels[it] != withContours[it] }
-        assertTrue("$changed pixels changed by the Contours", changed > plainPixels.size / 50)
 
         // The PNG decodes back to the same pixels.
         val png = ByteArrayOutputStream().also { MosaicExport.writePng(plain, it) }.toByteArray()
@@ -80,7 +75,7 @@ class MosaicExportTest {
         // A 2048×1536 Frame, the shutter's working size.
         val frame = Bitmap.createScaledBitmap(fixture(), 2048, 1536, true)
         val mosaic = NativeMosaic.fromBitmap(frame)
-        val drawn = MosaicExport.render(mosaic, overlay = true)
+        val drawn = MosaicExport.render(mosaic)
         assertEquals(2048, drawn.width)
         assertEquals(1536, drawn.height)
     }
@@ -90,7 +85,7 @@ class MosaicExportTest {
         val mosaic = NativeMosaic.fromBitmap(fixture())
         val name = mosaicFileName(LocalDateTime.of(2001, 2, 3, 4, 5, 6))
         val dateTaken = 981_173_106_000L // 2001-02-03 04:05:06 UTC
-        val uri = MosaicExport.saveToGallery(context, MosaicExport.render(mosaic, overlay = false), name, dateTaken)
+        val uri = MosaicExport.saveToGallery(context, MosaicExport.render(mosaic), name, dateTaken)
         try {
             val resolver = context.contentResolver
             val columns = arrayOf(
@@ -126,7 +121,7 @@ class MosaicExportTest {
     fun condividiWritesToTheCacheAndNotToTheGallery() {
         val mosaic = NativeMosaic.fromBitmap(fixture())
         val name = mosaicFileName(LocalDateTime.of(2001, 2, 3, 4, 5, 7))
-        val uri = MosaicExport.writeShareFile(context, MosaicExport.render(mosaic, overlay = false), name)
+        val uri = MosaicExport.writeShareFile(context, MosaicExport.render(mosaic), name)
         try {
             assertEquals(MosaicExport.authority(context), uri.authority)
             val bytes = context.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
@@ -135,7 +130,7 @@ class MosaicExportTest {
             assertEquals(320, decoded.width)
             assertNoExif(bytes)
             // A second share replaces the first file.
-            MosaicExport.writeShareFile(context, MosaicExport.render(mosaic, overlay = true), name)
+            MosaicExport.writeShareFile(context, MosaicExport.render(mosaic), name)
             assertEquals(listOf(name), MosaicExport.shareCache(context).list()!!.toList())
 
             // Nothing of that name in MediaStore.

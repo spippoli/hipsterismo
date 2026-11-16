@@ -1,6 +1,5 @@
 package io.github.spippoli.hipsterismo
 
-import kotlin.math.max
 import kotlin.math.min
 
 // The camera screen's plain arithmetic, with no Android classes, so the JVM
@@ -21,19 +20,15 @@ data class Placement(val scale: Float, val dx: Float, val dy: Float)
 
 /**
  * Where a [frameWidth] × [frameHeight] Frame goes in a [viewWidth] ×
- * [viewHeight] view, centred with its aspect ratio kept: covering the whole
- * view and cropped if [crop] (the live preview), or whole inside it.
+ * [viewHeight] view: whole inside it, centred with its aspect ratio kept.
  */
-fun placement(frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: Float, crop: Boolean): Placement {
+fun placement(frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: Float): Placement {
     if (frameWidth <= 0 || frameHeight <= 0) return Placement(1f, 0f, 0f)
     val sx = viewWidth / frameWidth
     val sy = viewHeight / frameHeight
-    val scale = if (crop) max(sx, sy) else min(sx, sy)
+    val scale = min(sx, sy)
     return Placement(scale, (viewWidth - frameWidth * scale) / 2, (viewHeight - frameHeight * scale) / 2)
 }
-
-/** The Contour overlay's line width in Frame pixels: the short side / 240, so 1 px at 320×240 (#59). */
-fun overlayStrokeWidth(frameWidth: Int, frameHeight: Int): Float = min(frameWidth, frameHeight) / 240f
 
 /**
  * The events of the last [windowNanos] and their values: the preview's fps

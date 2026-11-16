@@ -35,14 +35,4 @@ class SaveMathsTest {
         assertEquals(1_000L, mosaicDateTaken(PhotoSource.GALLERY, 1_000L, 0L))
         assertEquals(1_000L, mosaicDateTaken(PhotoSource.GALLERY, 1_000L, -1L))
     }
-
-    @Test
-    fun theOverlayLineScalesWithTheWorkingSize() {
-        // The saved PNG is at the working size, so the line is min side / 240 px there.
-        assertEquals(6.4f, overlayStrokeWidth(2048, 1536), 1e-6f)
-        assertEquals(6.4f, overlayStrokeWidth(1536, 2048), 1e-6f)
-        assertEquals(6.4f, overlayStrokeWidth(2048, 1538) - 2f / 240, 1e-5f)
-        assertEquals(1f, overlayStrokeWidth(320, 240), 0f)
-        assertEquals(2.5f, overlayStrokeWidth(1000, 600), 1e-6f)
-    }
 }
