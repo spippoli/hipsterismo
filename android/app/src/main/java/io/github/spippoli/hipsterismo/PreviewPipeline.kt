@@ -12,6 +12,7 @@ import android.util.Log
 import android.util.Size
 import android.view.Display
 import android.view.OrientationEventListener
+import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
@@ -36,7 +37,8 @@ import java.util.concurrent.Executors
 /**
  * The live preview and the photos: CameraX binds Preview (the raw camera,
  * shown until the first Mosaic), ImageAnalysis (RGBA, 320×240, only the
- * latest Frame kept) and ImageCapture (the shutter's full-resolution JPEG).
+ * latest Frame kept) and ImageCapture (the shutter's 4:3 JPEG, capped near
+ * 12 MP).
  * One thread turns each analysis Frame into a Mosaic, rotated upright and
  * mirrored for the front camera, with an ADPF hint session asking for a fast
  * core. The latest Mosaic is [mosaic]; [coreMs] holds the core's times of the
@@ -74,7 +76,10 @@ class PreviewPipeline(private val context: Context) {
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
-            Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
+            // One thread, so this logs at most once.
+            raisePriority({ Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }) { e ->
+                Log.w(TAG, "display priority refused, running at the default priority: $e")
+            }
             runnable.run()
         }, "mosaic-preview")
     }
@@ -103,17 +108,28 @@ class PreviewPipeline(private val context: Context) {
         )
         .build()
 
-    // The shutter's photo: the largest 4:3 size (CameraX's default for
-    // ImageCapture), latency over quality, saved as a JPEG with its EXIF
-    // orientation.
+    // The shutter's photo: 4:3, capped near 12 MP ([captureSize]; the largest
+    // 4:3 size on a camera under the cap), latency over quality, saved as a
+    // JPEG with its EXIF orientation.
     private val capture = ImageCapture.Builder()
         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
         .setResolutionSelector(
             ResolutionSelector.Builder()
                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                .setResolutionFilter(::captureFirst)
                 .build(),
         )
         .build()
+
+    // Puts [captureSize]'s choice first and keeps CameraX's order for the
+    // rest, the fallbacks should that size not fit with the other use cases.
+    private fun captureFirst(sizes: List<Size>, rotationDegrees: Int): List<Size> {
+        val chosen = captureSize(sizes.map { PixelSize(it.width, it.height) }) ?: return sizes
+        val first = sizes.first { it.width == chosen.width && it.height == chosen.height }
+        Log.i(TAG, "capture sizes: ${sizes.size}, largest ${sizes.maxByOrNull { it.width.toLong() * it.height }}, chosen $first")
+        return listOf(first) + (sizes - first)
+    }
 
     /** The camera that is on and its zoom, for the camera screen's controls. */
     data class CameraState(
@@ -194,6 +210,7 @@ class PreviewPipeline(private val context: Context) {
         loggedFrame = false
         val camera = cameras.bindToLifecycle(owner, selector, preview, analysis, capture)
         bound = camera
+        Log.i(TAG, "capture bound at ${capture.resolutionInfo?.resolution}")
         requestedZoom = camera.cameraInfo.zoomState.value?.zoomRatio ?: 1f
         _camera.value = _camera.value.copy(front = front, zoom = requestedZoom)
         camera.cameraInfo.zoomState.observe(owner, zoomObserver)
@@ -251,7 +268,13 @@ class PreviewPipeline(private val context: Context) {
         val metadata = ImageCapture.Metadata().apply { isReversedHorizontal = mirror }
         val options = ImageCapture.OutputFileOptions.Builder(file).setMetadata(metadata).build()
         capture.takePicture(options, executor, object : ImageCapture.OnImageSavedCallback {
-            override fun onImageSaved(output: ImageCapture.OutputFileResults) = onSaved()
+            override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                // The JPEG's stored size (before its EXIF rotation): only its header is read.
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.path, bounds)
+                Log.i(TAG, "photo captured at ${bounds.outWidth}x${bounds.outHeight}")
+                onSaved()
+            }
             override fun onError(exception: ImageCaptureException) = onError(exception)
         })
     }
