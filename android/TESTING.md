@@ -71,6 +71,16 @@ Delete every test image afterwards: `adb shell content delete --uri content://me
 - [ ] **Photos:** after a few photos, `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/photos` is empty. Each JPEG is deleted once decoded, and the folder is emptied at every start.
 - [ ] **Shared:** after a Condividi, `adb shell am force-stop io.github.spippoli.hipsterismo.debug`, then start the app again (the launcher intent above). `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/` no longer lists `shared` (or lists it empty).
 
+## Large screen (#102)
+
+On a screen of 600 dp or more (a tablet, an unfolded foldable), Android ignores the portrait lock. With no such device, use the `hipTab` emulator (see CLAUDE.md, Emulators); `adb emu rotate` turns the whole virtual device, sensors included (a forced `user_rotation` leaves the sensors behind, so the icons turn sideways).
+
+- [ ] **Camera screen in landscape:** the portrait layout is a centred column `height · 3/4` wide, with black bands at the sides; nothing stretches. The LIVE chip, the viewfinder, the `min patch area` row and the three buttons sit inside the column, and the gallery and switch glyphs read upright.
+- [ ] **Controls:** a tap on a step of the row, the shutter and the switch work inside the column.
+- [ ] **Result screen in landscape:** the same column: the Mosaic fits whole, the top bar and Condividi, Salva and Scarta are upright; Scarta goes back to the camera.
+- [ ] **Portrait and back:** turned to portrait, the layout takes the whole window; turned back to landscape, the column returns, with the same slider.
+- [ ] **Phone unchanged:** on the Pixel 8a, portrait and held in landscape look as in Camera screen above (the window never turns there, so no column).
+
 ## Performance (#59)
 
 Pixel 8a, the default `min patch area` of 32 px², an ordinary indoor scene, the phone unlocked and not hot. A warm phone, for example one charging at 100%, caps the X3 and slows both the preview and the photos. Check before you start, and let the phone cool if either check fails:

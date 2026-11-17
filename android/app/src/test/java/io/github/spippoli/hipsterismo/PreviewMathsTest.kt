@@ -34,6 +34,31 @@ class PreviewMathsTest {
     }
 
     @Test
+    fun aLargeLandscapeWindowGetsACentredPortraitColumn() {
+        // A tablet held landscape, 1280×800 dp: a 600 dp column, bands of 340 dp.
+        val tablet = portraitColumn(1280f, 800f)
+        assertEquals(600f, tablet.width, 0f)
+        assertEquals(340f, tablet.x, 0f)
+        assertEquals(1280f / 2, tablet.x + tablet.width / 2, 1e-3f)
+        // An unfolded foldable, 841×701 dp: width = height · 3/4.
+        val fold = portraitColumn(841f, 701f)
+        assertEquals(701f * 3 / 4, fold.width, 1e-3f)
+        assertEquals((841f - 701f * 3 / 4) / 2, fold.x, 1e-3f)
+        // Exactly 600 dp wide counts.
+        assertEquals(PortraitColumn(90f, 420f), portraitColumn(600f, 560f))
+    }
+
+    @Test
+    fun portraitAndSmallWindowsKeepTheWholeWidth() {
+        // The Pixel 8a in portrait, a tablet held portrait, a square window.
+        assertEquals(PortraitColumn(0f, 412f), portraitColumn(412f, 915f))
+        assertEquals(PortraitColumn(0f, 800f), portraitColumn(800f, 1280f))
+        assertEquals(PortraitColumn(0f, 700f), portraitColumn(700f, 700f))
+        // A landscape window under 600 dp wide.
+        assertEquals(PortraitColumn(0f, 599f), portraitColumn(599f, 400f))
+    }
+
+    @Test
     fun emptyFramePlacementIsIdentity() = assertEquals(Placement(1f, 0f, 0f), placement(0, 0, 100f, 100f))
 
     @Test
@@ -114,6 +139,21 @@ class PreviewMathsTest {
         assertEquals(-270f, iconAngle(-180f, 1), 0f)
         // Already there: no turn, whatever the laps.
         assertEquals(-450f, iconAngle(-450f, 3), 0f)
+    }
+
+    @Test
+    fun iconsTurnAgainstThePhoneRelativeToTheWindow() {
+        // A tablet whose natural orientation is landscape, held that way: upright.
+        assertEquals(0f, iconAngle(0f, 0, 0), 0f)
+        // A window turned with the phone (display ROTATION_90, held at ROTATION_90): no turn.
+        assertEquals(0f, iconAngle(0f, 1, 1), 0f)
+        assertEquals(0f, iconAngle(0f, 3, 3), 0f)
+        // The window turned left but the phone held upright: the icons turn anticlockwise.
+        assertEquals(-90f, iconAngle(0f, 0, 1), 0f)
+        // The window turned right, the phone turned left: upside down.
+        assertEquals(180f, iconAngle(90f, 1, 3), 0f)
+        // A display at ROTATION_0 behaves as before.
+        assertEquals(iconAngle(0f, 3), iconAngle(0f, 3, 0), 0f)
     }
 
     @Test
