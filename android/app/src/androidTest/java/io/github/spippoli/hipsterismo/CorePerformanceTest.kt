@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.nio.ByteBuffer
@@ -19,6 +20,7 @@ import java.nio.ByteBuffer
  * thread like the preview's, without and with the ADPF hint session the
  * preview uses. It logs the first call, the median and the p90 under the tag
  * `hipsterismo-perf`, and asserts only the 15 fps floor (66 ms) on the median.
+ * Skipped on emulators, whose ARM translator says nothing about a phone.
  */
 @RunWith(AndroidJUnit4::class)
 class CorePerformanceTest {
@@ -71,6 +73,7 @@ class CorePerformanceTest {
 
     @Test
     fun steadyStateIsAbove15Fps() {
+        assumeFalse("the floor is about phones, not the emulator's ARM translator", Emulator.isEmulator)
         val plain = run("plain thread", hinted = false)
         val hinted = run("ADPF hint", hinted = true)
         assertTrue("median $plain / $hinted ms", minOf(plain, hinted) < 66.0)

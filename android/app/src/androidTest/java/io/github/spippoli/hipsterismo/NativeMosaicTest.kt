@@ -8,6 +8,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.nio.ByteBuffer
@@ -17,7 +18,8 @@ import java.nio.ByteBuffer
  * the default min patch area, is the golden of tests/core/main.cpp, from a
  * Bitmap, from a ByteBuffer whose rows are padded, and from a camera-like
  * buffer that holds the Frame turned or mirrored, read back upright through a
- * FrameTransform.
+ * FrameTransform. The hash tests are skipped on an emulator whose ARM
+ * translator changes the floats (API 30, see [Emulator.keepsGoldenHashes]).
  */
 @RunWith(AndroidJUnit4::class)
 class NativeMosaicTest {
@@ -35,8 +37,12 @@ class NativeMosaicTest {
 
     private fun hex(value: Long) = "0x%016x".format(value)
 
+    private fun assumeGoldenHashes() =
+        assumeTrue("this emulator's ARM translator changes the core's floats", Emulator.keepsGoldenHashes)
+
     @Test
     fun bitmapGivesTheGoldenHash() {
+        assumeGoldenHashes()
         for ((name, golden) in goldens) {
             val bitmap = frame(name)
             assertEquals(Bitmap.Config.ARGB_8888, bitmap.config)
@@ -46,6 +52,7 @@ class NativeMosaicTest {
 
     @Test
     fun paddedByteBufferGivesTheGoldenHash() {
+        assumeGoldenHashes()
         for ((name, golden) in goldens) {
             val bitmap = frame(name)
             val packed = ByteBuffer.allocate(bitmap.byteCount)
@@ -102,6 +109,7 @@ class NativeMosaicTest {
 
     @Test
     fun turnedAndMirroredBuffersGiveTheGoldenHash() {
+        assumeGoldenHashes()
         val bitmap = frame("fingers.png")
         for (rotation in listOf(0, 90, 180, 270)) for (mirror in listOf(false, true)) {
             val (buffer, transform) = cameraBuffer(bitmap, rotation, mirror)
