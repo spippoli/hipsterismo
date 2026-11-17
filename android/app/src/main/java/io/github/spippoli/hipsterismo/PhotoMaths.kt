@@ -28,6 +28,36 @@ fun cappedSize(width: Int, height: Int, cap: Int = PHOTO_CAP): PixelSize {
 }
 
 /**
+ * The shutter's pixel cap: 13 MP, so "near 12 MP" (#101). It takes the 12 MP
+ * class of sizes (4000×3000, 4032×3024, 4080×3060 and 4080×3072 at 12.5 MP,
+ * 4160×3120 at 13.0 MP), which every 48–200 MP sensor offers binned, but not
+ * 16 MP and up. Photos are decoded to [PHOTO_CAP] anyway; a larger JPEG only
+ * costs capture and decode time (#94).
+ */
+const val CAPTURE_CAP_PIXELS = 13_000_000L
+
+/** Whether [size] is 4:3 either way round, within 1%: sensor sizes are a few pixels off (4624×3472). */
+fun isFourByThree(size: PixelSize): Boolean {
+    val long = max(size.width, size.height).toDouble()
+    val short = minOf(size.width, size.height).toDouble()
+    return kotlin.math.abs(long / short - 4.0 / 3.0) <= 0.01 * 4.0 / 3.0
+}
+
+/**
+ * The shutter's JPEG size out of the camera's [sizes]: the largest 4:3 one of
+ * at most [capPixels] pixels, else (every 4:3 size over the cap) the smallest
+ * 4:3 one. Without any 4:3 size the same rule picks from all of them. A
+ * camera whose largest 4:3 size is under the cap keeps it, as before #101.
+ * Null for an empty list.
+ */
+fun captureSize(sizes: List<PixelSize>, capPixels: Long = CAPTURE_CAP_PIXELS): PixelSize? {
+    val candidates = sizes.filter(::isFourByThree).ifEmpty { sizes }
+    fun PixelSize.pixels() = width.toLong() * height
+    return candidates.filter { it.pixels() <= capPixels }.maxByOrNull { it.pixels() }
+        ?: candidates.minByOrNull { it.pixels() }
+}
+
+/**
  * The shutter's target rotation (a `Surface.ROTATION_*` value: 0, 1, 2 or 3)
  * for the device held at [degrees], the clockwise angle that
  * `OrientationEventListener` reports (0 upright, 90 turned right). It follows
