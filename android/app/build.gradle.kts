@@ -1,6 +1,8 @@
 // The Android app: Kotlin (AGP's built-in Kotlin), Compose, and the shared
 // adaptive core through JNI (src/main/cpp/). Debug builds only, installed by
-// hand with adb; arm64-v8a only, for the Pixel 8a.
+// hand with adb; arm64-v8a only, for the Pixel 8a. The debug build is its own
+// package, io.github.spippoli.hipsterismo.debug ("Hipsterismo debug"), so it
+// can sit next to a release install (#98).
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -20,6 +22,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += "arm64-v8a"
+        }
+    }
+
+    // The launcher label goes through the manifest's ${appLabel} placeholder.
+    buildTypes {
+        getByName("debug") {
+            applicationIdSuffix = ".debug"
+            manifestPlaceholders["appLabel"] = "Hipsterismo debug"
+        }
+        getByName("release") {
+            manifestPlaceholders["appLabel"] = "Hipsterismo"
         }
     }
 

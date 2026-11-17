@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Hipsterismo</string>
     <string name="starting">avvio…</string>
     <string name="paused">in pausa</string>
     <string name="live_fps">LIVE · %1$.0f fps</string>

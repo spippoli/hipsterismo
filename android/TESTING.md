@@ -11,10 +11,11 @@ cd android && ./gradlew installDebug          # or: adb install -r app/build/out
 adb shell content query --uri content://media/external/images/media --projection _id | wc -l   # the gallery's count, for the end
 ```
 
-- `./gradlew connectedDebugAndroidTest` uninstalls the app, so a fresh install asks for the camera again. To skip the denial checks, grant it with `adb shell pm grant io.github.spippoli.hipsterismo android.permission.CAMERA`.
+- The debug build is the package `io.github.spippoli.hipsterismo.debug`, "Hipsterismo debug" in the launcher, next to any release install (#98).
+- `./gradlew connectedDebugAndroidTest` uninstalls the app, so a fresh install asks for the camera again. To skip the denial checks, grant it with `adb shell pm grant io.github.spippoli.hipsterismo.debug android.permission.CAMERA`.
 - Keep the phone unlocked for the whole run. A locked screen drops the preview to about 2 fps, and that is not a failure.
 - Point the camera at an ordinary indoor scene, such as a desk, and keep the default `min patch area` of 32 px² for the performance figures.
-- To come back to the app from adb, use the launcher's intent, which brings the running task to the front: `adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n io.github.spippoli.hipsterismo/.MainActivity`. A bare `am start -n …` stacks a new MainActivity on the old one, so it always shows the camera.
+- To come back to the app from adb, use the launcher's intent, which brings the running task to the front: `adb shell am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n io.github.spippoli.hipsterismo.debug/io.github.spippoli.hipsterismo.MainActivity`. A bare `am start -n …` stacks a new MainActivity on the old one, so it always shows the camera.
 
 ## Camera screen (#64)
 
@@ -59,15 +60,15 @@ Delete every test image afterwards: `adb shell content delete --uri content://me
 - [ ] **What you see:** the saved PNG is the pure Mosaic, with no Contours. Pull it (`adb shell content read --uri content://media/external/images/media/<_id> > m.png`): `exiftool m.png` shows only PNG chunks (no EXIF, no GPS).
 - [ ] **Apri:** the snackbar's Apri opens the PNG in Google Photos (or the chosen viewer).
 - [ ] **Album:** Google Photos lists the Mosaic in the Hipsterismo album (Raccolta → Hipsterismo), dated at the save.
-- [ ] **Condividi:** opens the system share sheet with a preview of the Mosaic. No new row appears in MediaStore, and `adb shell run-as io.github.spippoli.hipsterismo ls cache/shared` holds exactly one PNG.
+- [ ] **Condividi:** opens the system share sheet with a preview of the Mosaic. No new row appears in MediaStore, and `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/shared` holds exactly one PNG.
 - [ ] **Share to a real app:** send it to a recipient app (a chat to yourself, Gmail to yourself, or Drive). The image that arrives is the Mosaic, at the working size.
 - [ ] **Scarta after Salva:** Scarta goes back to the camera without asking, and the next photo's result starts with Salva again.
 - [ ] **Gallery photo Salva:** pick a photo from the gallery and tap Salva. The PNG is saved like a camera one, at the gallery Mosaic's size. Its `datetaken` reads NULL and Google Photos dates it at the save, not next to its original (decided in #66).
 
 ## Cache cleared at startup
 
-- [ ] **Photos:** after a few photos, `adb shell run-as io.github.spippoli.hipsterismo ls cache/photos` is empty. Each JPEG is deleted once decoded, and the folder is emptied at every start.
-- [ ] **Shared:** after a Condividi, `adb shell am force-stop io.github.spippoli.hipsterismo`, then start the app again (the launcher intent above). `adb shell run-as io.github.spippoli.hipsterismo ls cache/` no longer lists `shared` (or lists it empty).
+- [ ] **Photos:** after a few photos, `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/photos` is empty. Each JPEG is deleted once decoded, and the folder is emptied at every start.
+- [ ] **Shared:** after a Condividi, `adb shell am force-stop io.github.spippoli.hipsterismo.debug`, then start the app again (the launcher intent above). `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/` no longer lists `shared` (or lists it empty).
 
 ## Performance (#59)
 
@@ -98,8 +99,8 @@ adb shell cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq    # the X3'
 - [ ] **Peak memory:** after the photos, with the app still running:
 
   ```sh
-  adb shell dumpsys meminfo io.github.spippoli.hipsterismo | grep -E 'TOTAL PSS'
-  adb shell cat /proc/$(adb shell pidof io.github.spippoli.hipsterismo)/status | grep VmHWM
+  adb shell dumpsys meminfo io.github.spippoli.hipsterismo.debug | grep -E 'TOTAL PSS'
+  adb shell cat /proc/$(adb shell pidof io.github.spippoli.hipsterismo.debug)/status | grep VmHWM
   ```
 
   TOTAL PSS, the measure #59 names, stays under about 600 MB. Record `VmHWM` too: it is the peak resident memory, and it reads higher than PSS because it counts shared and graphics pages in full.
