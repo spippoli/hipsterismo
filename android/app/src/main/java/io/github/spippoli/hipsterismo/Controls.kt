@@ -1,6 +1,10 @@
 package io.github.spippoli.hipsterismo
 
+import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import android.view.OrientationEventListener
+import android.view.Surface
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -62,6 +66,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
@@ -97,23 +102,43 @@ const val DISABLED_ALPHA = 0.4f
 fun labelStyle(size: Float = 12f, color: Color = OnDark) = TextStyle(color = color, fontSize = size.sp)
 
 /**
- * The angle the icons turn by ([iconAngle]) while the screen stays in
- * portrait, following how the phone is held, animated the short way.
+ * The angle the icons turn by ([iconAngle]) to read upright, following how
+ * the phone is held relative to the window, animated the short way. On a
+ * phone the window stays in portrait; on a large screen it may turn with the
+ * device, so the display's rotation is read at every turn of either.
  */
 @Composable
 fun rememberIconAngle(): State<Float> {
     val context = LocalContext.current
+    val view = LocalView.current
     var target by remember { mutableFloatStateOf(0f) }
-    DisposableEffect(context) {
+    DisposableEffect(context, view) {
+        var held: Int? = null
+        fun update() {
+            val rotation = held ?: return
+            val next = iconAngle(target, rotation, view.display?.rotation ?: Surface.ROTATION_0)
+            if (next != target) target = next
+        }
         val listener = object : OrientationEventListener(context) {
             override fun onOrientationChanged(orientation: Int) {
-                val rotation = captureRotationFor(orientation) ?: return
-                val next = iconAngle(target, rotation)
-                if (next != target) target = next
+                held = captureRotationFor(orientation) ?: return
+                update()
             }
         }
+        val displays = context.getSystemService(DisplayManager::class.java)
+        val displayListener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(displayId: Int) {}
+            override fun onDisplayRemoved(displayId: Int) {}
+            override fun onDisplayChanged(displayId: Int) {
+                if (displayId == view.display?.displayId) update()
+            }
+        }
+        displays.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
         if (listener.canDetectOrientation()) listener.enable()
-        onDispose { listener.disable() }
+        onDispose {
+            listener.disable()
+            displays.unregisterDisplayListener(displayListener)
+        }
     }
     return animateFloatAsState(target, tween(320), label = "icons")
 }

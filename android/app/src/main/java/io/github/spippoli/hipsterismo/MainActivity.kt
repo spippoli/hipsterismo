@@ -14,7 +14,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -24,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 
@@ -32,7 +41,9 @@ import androidx.lifecycle.LifecycleEventObserver
  * once, and while the permission is denied it shows why it is needed.
  *
  * The screen stays in portrait, as in the stock camera app: held in
- * landscape, only the icons turn. The activity still handles configuration
+ * landscape, only the icons turn. On a large screen, where Android ignores
+ * the portrait lock, a landscape window shows the portrait layout as a
+ * centred column ([CentredColumn]). The activity still handles configuration
  * changes itself (`configChanges`), so the camera keeps running.
  */
 class MainActivity : ComponentActivity() {
@@ -74,19 +85,21 @@ class MainActivity : ComponentActivity() {
                 onDispose { lifecycle.removeObserver(observer) }
             }
 
-            when {
-                granted -> {
-                    val pipeline = remember { PreviewPipeline(this) }
-                    DisposableEffect(pipeline) {
-                        pipeline.start(this@MainActivity, previewView.surfaceProvider)
-                        onDispose { pipeline.stop() }
+            CentredColumn {
+                when {
+                    granted -> {
+                        val pipeline = remember { PreviewPipeline(this) }
+                        DisposableEffect(pipeline) {
+                            pipeline.start(this@MainActivity, previewView.surfaceProvider)
+                            onDispose { pipeline.stop() }
+                        }
+                        MosaicApp(pipeline, previewView)
                     }
-                    MosaicApp(pipeline, previewView)
+                    denied -> PermissionScreen(canAsk) {
+                        if (canAsk) request.launch(Manifest.permission.CAMERA) else openAppSettings()
+                    }
+                    else -> Box(Modifier.fillMaxSize().background(PanelDark))
                 }
-                denied -> PermissionScreen(canAsk) {
-                    if (canAsk) request.launch(Manifest.permission.CAMERA) else openAppSettings()
-                }
-                else -> Box(Modifier.fillMaxSize().background(PanelDark))
             }
         }
     }
@@ -97,5 +110,22 @@ class MainActivity : ComponentActivity() {
         startActivity(
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
         )
+    }
+}
+
+/**
+ * Lays [content] out in the portrait column ([portraitColumn]): the whole
+ * window on a phone; in a landscape window of 600 dp or more (an unfolded
+ * foldable, a tablet, where Android ignores the portrait lock) a centred
+ * column `height · 3/4` wide, with black bands at its sides. The column is
+ * measured inside the safe drawing area, whose insets it consumes.
+ */
+@Composable
+private fun CentredColumn(content: @Composable () -> Unit) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(PanelDark).windowInsetsPadding(WindowInsets.safeDrawing)) {
+        val column = portraitColumn(maxWidth.value, maxHeight.value)
+        Box(Modifier.offset(x = column.x.dp).width(column.width.dp).fillMaxHeight()) {
+            content()
+        }
     }
 }
