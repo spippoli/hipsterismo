@@ -59,6 +59,22 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // English in values/, Italian in values-it/ (#93). The generated locale
+    // config (res/resources.properties says values/ is English) lists both in
+    // Android 13's per-app language settings. The libraries' other
+    // translations are left out, so on a phone in German even Compose's own
+    // TalkBack words are English, like the rest of the UI.
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters += listOf("en", "it")
+    }
+
+    // A string without its Italian translation fails lint, and so the release
+    // build, whose lint-vital runs the fatal checks.
+    lint {
+        fatal += "MissingTranslation"
+    }
 }
 
 dependencies {
