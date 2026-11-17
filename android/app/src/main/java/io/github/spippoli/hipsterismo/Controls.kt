@@ -64,6 +64,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -255,14 +256,15 @@ fun Shutter(enabled: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val disc by animateFloatAsState(if (pressed) 0.84f else 1f, tween(120), label = "shutter")
+    val shoot = stringResource(R.string.a11y_shoot)
     Box(
         modifier
             .size(76.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(CircleShape)
             .border(3.dp, Color.White, CircleShape)
-            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClickLabel = "Scatta") { onShoot() }
-            .semantics { contentDescription = "Scatta" },
+            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClickLabel = shoot) { onShoot() }
+            .semantics { contentDescription = shoot },
         contentAlignment = Alignment.Center,
     ) {
         Box(Modifier.size(62.dp).scale(disc).background(Color.White, CircleShape))
@@ -297,6 +299,7 @@ private fun ProgressRing(modifier: Modifier = Modifier) {
  */
 @Composable
 fun GalleryThumb(enabled: Boolean, busy: Boolean, angle: Float, onPick: () -> Unit, modifier: Modifier = Modifier) {
+    val gallery = stringResource(R.string.a11y_gallery)
     Box(modifier.size(60.dp), contentAlignment = Alignment.Center) {
         if (busy) ProgressRing(Modifier.size(60.dp))
         Canvas(
@@ -304,9 +307,9 @@ fun GalleryThumb(enabled: Boolean, busy: Boolean, angle: Float, onPick: () -> Un
                 .size(50.dp)
                 .alpha(if (enabled || busy) 1f else DISABLED_ALPHA)
                 .clip(CircleShape)
-                .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Galleria") { onPick() }
+                .clickable(enabled = enabled, role = Role.Button, onClickLabel = gallery) { onPick() }
                 .background(ButtonGrey)
-                .semantics { contentDescription = "Galleria" }
+                .semantics { contentDescription = gallery }
                 .rotate(angle),
         ) {
             val u = size.minDimension / 40
@@ -338,17 +341,18 @@ fun GalleryThumb(enabled: Boolean, busy: Boolean, angle: Float, onPick: () -> Un
 fun SwitchCameraButton(enabled: Boolean, angle: Float, onSwitch: () -> Unit, modifier: Modifier = Modifier) {
     var turns by remember { mutableFloatStateOf(0f) }
     val spin by animateFloatAsState(turns * 180f, tween(360), label = "switch")
+    val switchCamera = stringResource(R.string.a11y_switch_camera)
     Box(
         modifier
             .size(50.dp)
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(CircleShape)
             .background(ButtonGrey)
-            .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Cambia fotocamera") {
+            .clickable(enabled = enabled, role = Role.Button, onClickLabel = switchCamera) {
                 turns += 1
                 onSwitch()
             }
-            .semantics { contentDescription = "Cambia fotocamera" },
+            .semantics { contentDescription = switchCamera },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(26.dp).rotate(angle + spin)) {
@@ -379,7 +383,8 @@ fun SwitchCameraButton(enabled: Boolean, angle: Float, onSwitch: () -> Unit, mod
  * The zoom chips of the stock camera app, in a translucent capsule at the
  * preview's bottom: one per preset ([zoomPresets]). The lit one
  * ([activePreset]) has a dark disc and reads the current [zoom] ("1×",
- * "1,4×"); the others read just their ratio ("0,5", "2"). Each label turns
+ * "1,4×", "1.4×" in English: [zoomLabel] in the UI's locale); the others
+ * read just their ratio ("0,5", "2"). Each label turns
  * by [angle]. A tap sets the chip's ratio. Dimmed and inert unless [enabled].
  */
 @Composable
@@ -392,6 +397,7 @@ fun ZoomChips(
     enabled: Boolean = true,
 ) {
     val active = activePreset(presets, zoom)
+    val locale = LocalConfiguration.current.locales[0]
     Row(
         modifier
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
@@ -403,15 +409,17 @@ fun ZoomChips(
     ) {
         for (i in presets.indices) {
             val lit = i == active
-            val label = if (lit) zoomLabel(zoom) else zoomLabel(presets[i]).removeSuffix("×")
+            val label = if (lit) zoomLabel(zoom, locale) else zoomLabel(presets[i], locale).removeSuffix("×")
+            val chip = stringResource(R.string.a11y_zoom, zoomLabel(presets[i], locale))
+            val current = stringResource(R.string.a11y_current_zoom, zoomLabel(zoom, locale))
             Box(
                 Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .clickable(enabled = enabled, role = Role.Button, onClickLabel = "Zoom ${zoomLabel(presets[i])}") { onZoom(presets[i]) }
+                    .clickable(enabled = enabled, role = Role.Button, onClickLabel = chip) { onZoom(presets[i]) }
                     .semantics {
-                        contentDescription = "Zoom ${zoomLabel(presets[i])}"
-                        if (lit) stateDescription = "zoom attuale ${zoomLabel(zoom)}"
+                        contentDescription = chip
+                        if (lit) stateDescription = current
                     },
                 contentAlignment = Alignment.Center,
             ) {
@@ -455,7 +463,7 @@ fun Chip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
  */
 @Composable
 fun LiveChip(text: String, live: Boolean, onTap: () -> Unit, modifier: Modifier = Modifier) {
-    Chip(modifier.clickable(enabled = live, onClickLabel = "Statistiche") { onTap() }) {
+    Chip(modifier.clickable(enabled = live, onClickLabel = stringResource(R.string.a11y_statistics)) { onTap() }) {
         Box(Modifier.size(6.dp).background(if (live) Color(0xFFFF5252) else Color(0xFFFFC107), CircleShape))
         BasicText(text, style = labelStyle(11f, Color.White))
     }

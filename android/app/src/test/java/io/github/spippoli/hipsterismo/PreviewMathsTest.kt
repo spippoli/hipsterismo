@@ -3,6 +3,7 @@ package io.github.spippoli.hipsterismo
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Locale
 
 class PreviewMathsTest {
     @Test
@@ -90,14 +91,27 @@ class PreviewMathsTest {
     }
 
     @Test
-    fun zoomLabelsHaveOneItalianDecimal() {
-        assertEquals("0,5×", zoomLabel(0.5f))
-        assertEquals("0,6×", zoomLabel(0.56f))
-        assertEquals("1×", zoomLabel(1f))
-        assertEquals("1×", zoomLabel(1.04f))
-        assertEquals("1,4×", zoomLabel(1.4f))
-        assertEquals("2×", zoomLabel(1.98f))
-        assertEquals("10×", zoomLabel(10f))
+    fun zoomLabelsHaveOneItalianDecimalInItalian() {
+        val it = Locale.ITALIAN
+        assertEquals("0,5×", zoomLabel(0.5f, it))
+        assertEquals("0,6×", zoomLabel(0.56f, it))
+        assertEquals("1×", zoomLabel(1f, it))
+        assertEquals("1×", zoomLabel(1.04f, it))
+        assertEquals("1,4×", zoomLabel(1.4f, it))
+        assertEquals("2×", zoomLabel(1.98f, it))
+        assertEquals("10×", zoomLabel(10f, it))
+    }
+
+    @Test
+    fun zoomLabelsHaveOneEnglishDecimalInEnglish() {
+        val en = Locale.ENGLISH
+        assertEquals("0.5×", zoomLabel(0.5f, en))
+        assertEquals("0.6×", zoomLabel(0.56f, en))
+        assertEquals("1×", zoomLabel(1f, en))
+        assertEquals("1×", zoomLabel(1.04f, en))
+        assertEquals("1.4×", zoomLabel(1.4f, en))
+        assertEquals("2×", zoomLabel(1.98f, en))
+        assertEquals("10×", zoomLabel(10f, en))
     }
 
     @Test
