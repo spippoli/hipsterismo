@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The UI in Italian. The strings the same in both languages live only in values/. -->
+<resources>
+    <string name="starting">avvio…</string>
+    <string name="paused">in pausa</string>
+    <string name="permission_title">Serve la fotocamera</string>
+    <string name="permission_body">Hipsterismo trasforma l\'inquadratura della fotocamera in un Mosaic dal vivo. Senza il permesso Fotocamera non ha niente da mostrare. Le immagini restano sul telefono.</string>
+    <string name="permission_ask">Consenti la fotocamera</string>
+    <string name="permission_settings">Apri le impostazioni</string>
+    <string name="back">Indietro</string>
+    <string name="discard">Scarta</string>
+    <string name="share">Condividi</string>
+    <string name="save">Salva</string>
+    <string name="saved">Salvato</string>
+    <string name="saved_in">Salvato in Immagini/Hipsterismo</string>
+    <string name="open">Apri</string>
+    <string name="save_failed">Non riesco a salvare il Mosaic</string>
+    <string name="share_failed">Non riesco a condividere il Mosaic</string>
+    <string name="no_viewer">Nessuna app per aprire l\'immagine</string>
+    <string name="photo_failed">Non riesco a leggere la foto</string>
+    <string name="a11y_shoot">Scatta</string>
+    <string name="a11y_gallery">Galleria</string>
+    <string name="a11y_switch_camera">Cambia fotocamera</string>
+    <string name="a11y_statistics">Statistiche</string>
+    <string name="a11y_zoom">Zoom %1$s</string>
+    <string name="a11y_current_zoom">zoom attuale %1$s</string>
+</resources>

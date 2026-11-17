@@ -1,5 +1,7 @@
 package io.github.spippoli.hipsterismo
 
+import java.text.DecimalFormatSymbols
+import java.util.Locale
 import kotlin.math.min
 
 // The camera screen's plain arithmetic, with no Android classes, so the JVM
@@ -70,12 +72,17 @@ fun zoomPresets(minZoom: Float, maxZoom: Float): List<Float> {
 fun activePreset(presets: List<Float>, zoom: Float): Int =
     presets.indexOfLast { it <= zoom + ZOOM_EPSILON }.coerceAtLeast(0)
 
-/** [zoom] as the chips write it, in Italian: "0,5×", "1×", "1,4×", "10×"; one decimal, none if it is .0. */
-fun zoomLabel(zoom: Float): String {
+/**
+ * [zoom] as the chips write it, with [locale]'s decimal separator: "0,5×",
+ * "1×", "1,4×", "10×" in Italian, "0.5×", "1.4×" in English; one decimal, none
+ * if it is .0.
+ */
+fun zoomLabel(zoom: Float, locale: Locale): String {
     val tenths = Math.round(zoom * 10)
     val whole = tenths / 10
     val tenth = tenths % 10
-    return if (tenth == 0) "$whole×" else "$whole,$tenth×"
+    val separator = DecimalFormatSymbols.getInstance(locale).decimalSeparator
+    return if (tenth == 0) "$whole×" else "$whole$separator$tenth×"
 }
 
 /** The zoom after a pinch that scaled the fingers' distance by [factor], within the camera's range. */

@@ -101,6 +101,7 @@ fun CameraScreen(
                 Log.i(
                     PreviewPipeline.TAG,
                     "preview %dx%d: %.1f fps, core %.1f ms, work %.1f ms, %d Tessels, min patch area %d".format(
+                        java.util.Locale.ROOT,
                         m.width, m.height, fps, coreMs, pipeline.workMs.mean(now), m.tesselCount, pipeline.minPatchArea,
                     ),
                 )

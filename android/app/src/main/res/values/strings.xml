@@ -1,25 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="starting">avvio…</string>
-    <string name="paused">in pausa</string>
-    <string name="live_fps">LIVE · %1$.0f fps</string>
-    <string name="live_stats">LIVE · %1$.1f fps · core %2$.1f ms · %3$d Tessel</string>
-    <string name="area_px2">%1$d px²</string>
-    <string name="min_patch_area">Min patch area</string>
-    <string name="permission_title">Serve la fotocamera</string>
-    <string name="permission_body">Hipsterismo trasforma l\'inquadratura della fotocamera in un Mosaic dal vivo. Senza il permesso Fotocamera non ha niente da mostrare. Le immagini restano sul telefono.</string>
-    <string name="permission_ask">Consenti la fotocamera</string>
-    <string name="permission_settings">Apri le impostazioni</string>
-    <string name="result_title">Mosaic</string>
-    <string name="back">Indietro</string>
-    <string name="discard">Scarta</string>
-    <string name="share">Condividi</string>
-    <string name="save">Salva</string>
-    <string name="saved">Salvato</string>
-    <string name="saved_in">Salvato in Immagini/Hipsterismo</string>
-    <string name="open">Apri</string>
-    <string name="save_failed">Non riesco a salvare il Mosaic</string>
-    <string name="share_failed">Non riesco a condividere il Mosaic</string>
-    <string name="no_viewer">Nessuna app per aprire l\'immagine</string>
-    <string name="photo_failed">Non riesco a leggere la foto</string>
+<!--
+    The UI in English, the default language and the fallback for every
+    language but Italian (values-it/). The wording is #93's table. Strings
+    marked translatable="false" read the same in both languages (Mosaic,
+    Tessel, Min patch area, LIVE, px²); every other one needs its Italian
+    translation, or lint's MissingTranslation fails the build.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="starting">starting…</string>
+    <string name="paused">paused</string>
+    <string name="live_fps" translatable="false">LIVE · %1$.0f fps</string>
+    <!-- Tessel stays singular after a count, as #93 decided: no plurals. -->
+    <string name="live_stats" translatable="false" tools:ignore="PluralsCandidate">LIVE · %1$.1f fps · core %2$.1f ms · %3$d Tessel</string>
+    <string name="area_px2" translatable="false">%1$d px²</string>
+    <string name="min_patch_area" translatable="false">Min patch area</string>
+    <string name="permission_title">Camera access needed</string>
+    <string name="permission_body">Hipsterismo turns what the camera sees into a live Mosaic. Without the Camera permission it has nothing to show. Your pictures stay on the phone.</string>
+    <string name="permission_ask">Allow camera</string>
+    <string name="permission_settings">Open settings</string>
+    <string name="result_title" translatable="false">Mosaic</string>
+    <string name="back">Back</string>
+    <string name="discard">Discard</string>
+    <string name="share">Share</string>
+    <string name="save">Save</string>
+    <string name="saved">Saved</string>
+    <string name="saved_in">Saved to Pictures/Hipsterismo</string>
+    <string name="open">Open</string>
+    <string name="save_failed">Couldn\'t save the Mosaic</string>
+    <string name="share_failed">Couldn\'t share the Mosaic</string>
+    <string name="no_viewer">No app can open the image</string>
+    <string name="photo_failed">Couldn\'t read the photo</string>
+    <!-- What TalkBack reads for the controls. -->
+    <string name="a11y_shoot">Take photo</string>
+    <string name="a11y_gallery">Gallery</string>
+    <string name="a11y_switch_camera">Switch camera</string>
+    <string name="a11y_statistics">Statistics</string>
+    <!-- A zoom chip, with its ratio ("1.4×"). -->
+    <string name="a11y_zoom">Zoom %1$s</string>
+    <!-- The lit zoom chip's state, with the current ratio ("1.4×"). -->
+    <string name="a11y_current_zoom">current zoom %1$s</string>
 </resources>

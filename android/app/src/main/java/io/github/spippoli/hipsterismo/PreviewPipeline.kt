@@ -332,6 +332,7 @@ class PreviewPipeline(private val context: Context) {
                 Log.i(
                     TAG,
                     "analysis %dx%d, row stride %d, pixel stride %d, rotation %d, mirror %b -> Frame %dx%d".format(
+                        java.util.Locale.ROOT,
                         image.width, image.height, plane.rowStride, plane.pixelStride,
                         image.imageInfo.rotationDegrees, mirror, transform.width, transform.height,
                     ),
