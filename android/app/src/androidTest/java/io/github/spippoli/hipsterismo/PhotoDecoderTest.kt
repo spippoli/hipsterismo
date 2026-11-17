@@ -196,6 +196,7 @@ class PhotoDecoderTest {
             Log.i(
                 "hipsterismo-perf",
                 "photo 4624x3472 JPEG run %d -> %dx%d: decode %.0f ms, core %.0f ms, decode + JNI + core %.0f ms, %d Tessels".format(
+                    java.util.Locale.ROOT,
                     run, mosaic.width, mosaic.height, decodeMs, mosaic.coreMs, totalMs, mosaic.tesselCount,
                 ),
             )

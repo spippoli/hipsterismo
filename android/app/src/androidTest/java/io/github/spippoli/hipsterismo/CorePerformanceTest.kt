@@ -61,6 +61,7 @@ class CorePerformanceTest {
             Log.i(
                 TAG,
                 "%s: first %.1f ms; steady core median %.1f ms, p90 %.1f ms, min %.1f ms; work median %.1f ms (%d Frames, hint %s)".format(
+                    java.util.Locale.ROOT,
                     label, first, median, steady[steady.size * 9 / 10], steady.first(), steadyWork[steadyWork.size / 2],
                     steady.size, if (session != null) "on" else "off",
                 ),
