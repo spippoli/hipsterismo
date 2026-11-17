@@ -30,6 +30,26 @@ fun placement(frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: F
     return Placement(scale, (viewWidth - frameWidth * scale) / 2, (viewHeight - frameHeight * scale) / 2)
 }
 
+/** The app's portrait column in a window: [width] wide, [x] from its left edge, the window's full height. */
+data class PortraitColumn(val x: Float, val width: Float)
+
+/**
+ * Where the portrait layout goes in a [windowWidth] × [windowHeight] window
+ * (dp). On a phone the screen stays in portrait and the column is the whole
+ * window. On a large screen (an unfolded foldable, a tablet) Android ignores
+ * the portrait lock, so the window can be landscape: from [LARGE_WINDOW_DP]
+ * wide, the column is then `height · 3/4` wide and centred, with black bands
+ * at its sides. A smaller landscape window keeps the whole width.
+ */
+fun portraitColumn(windowWidth: Float, windowHeight: Float): PortraitColumn {
+    if (windowWidth <= windowHeight || windowWidth < LARGE_WINDOW_DP) return PortraitColumn(0f, windowWidth)
+    val width = windowHeight * 3 / 4
+    return PortraitColumn((windowWidth - width) / 2, width)
+}
+
+/** The width (dp) from which a landscape window gets the centred column: Android's large-screen threshold. */
+const val LARGE_WINDOW_DP = 600f
+
 /**
  * The zoom chips above the shutter, as in the stock camera app: the camera's
  * widest ratio if it is under 1× (the ultrawide), then 1× and 2×, those the
@@ -107,13 +127,16 @@ class RollingWindow(private val windowNanos: Long = 1_000_000_000L) {
 
 /**
  * The angle (degrees, clockwise) the icons turn to read upright while the
- * phone is held at the `Surface.ROTATION_*` [rotation] ([captureRotationFor]):
- * the screen stays in portrait, as in the stock camera app, and only the
- * icons turn. Of the equivalent angles, the one nearest [current], so they
- * turn the short way (an upside-down turn goes anticlockwise from 0).
+ * phone is held at the `Surface.ROTATION_*` [rotation] ([captureRotationFor])
+ * and the window is shown at the display rotation [displayRotation]: on a
+ * phone the screen stays in portrait (0), as in the stock camera app, and
+ * only the icons turn; on a large screen the window may turn too, and the
+ * icons then turn only by the difference. Of the equivalent angles, the one
+ * nearest [current], so they turn the short way (an upside-down turn goes
+ * anticlockwise from 0).
  */
-fun iconAngle(current: Float, rotation: Int): Float {
-    val target = rotation * 90f
+fun iconAngle(current: Float, rotation: Int, displayRotation: Int = 0): Float {
+    val target = Math.floorMod(rotation - displayRotation, 4) * 90f
     val delta = ((target - current) % 360f + 540f) % 360f - 180f
     return current + delta
 }
