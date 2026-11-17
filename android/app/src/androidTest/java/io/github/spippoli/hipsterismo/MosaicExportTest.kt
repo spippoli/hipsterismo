@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.media.ExifInterface
 import android.provider.MediaStore
 import android.util.Log
+import androidx.core.content.IntentCompat
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertArrayEquals
@@ -141,10 +142,10 @@ class MosaicExportTest {
             )!!.use { assertEquals(0, it.count) }
 
             val share = MosaicExport.shareIntent(uri)
-            val send = share.getParcelableExtra(android.content.Intent.EXTRA_INTENT, android.content.Intent::class.java)!!
+            val send = IntentCompat.getParcelableExtra(share, android.content.Intent.EXTRA_INTENT, android.content.Intent::class.java)!!
             assertEquals(android.content.Intent.ACTION_SEND, send.action)
             assertEquals("image/png", send.type)
-            assertEquals(uri, send.getParcelableExtra(android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java))
+            assertEquals(uri, IntentCompat.getParcelableExtra(send, android.content.Intent.EXTRA_STREAM, android.net.Uri::class.java))
             assertTrue(send.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
         } finally {
             MosaicExport.shareCache(context).deleteRecursively()
