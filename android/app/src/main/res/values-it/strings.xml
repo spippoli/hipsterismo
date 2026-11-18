@@ -20,10 +20,14 @@
     <string name="share_failed">Non riesco a condividere il Mosaic</string>
     <string name="no_viewer">Nessuna app per aprire l\'immagine</string>
     <string name="photo_failed">Non riesco a leggere la foto</string>
+    <string name="report_chooser">Invia il report diagnostico</string>
+    <string name="report_subject">Report diagnostico di Hipsterismo</string>
+    <string name="report_failed">Non riesco a preparare il report</string>
     <string name="a11y_shoot">Scatta</string>
     <string name="a11y_gallery">Galleria</string>
     <string name="a11y_switch_camera">Cambia fotocamera</string>
     <string name="a11y_statistics">Statistiche</string>
+    <string name="a11y_report">Condividi il report diagnostico</string>
     <string name="a11y_zoom">Zoom %1$s</string>
     <string name="a11y_current_zoom">zoom attuale %1$s</string>
 </resources>

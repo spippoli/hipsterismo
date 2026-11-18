@@ -57,7 +57,9 @@ import kotlinx.coroutines.delay
  * processed) the last Mosaic stays frozen and dimmed, the chip reads "in
  * pausa", a ring spins around the gallery button and every control is
  * disabled, the pinch included.
- * [onShoot] and [onPick] are the shutter and the gallery thumbnail.
+ * [onShoot] and [onPick] are the shutter and the gallery thumbnail,
+ * [onReport] the LIVE chip's long-press (the diagnostic report, #106).
+ * Each second of Preview goes to [Diagnostics.app] with its logcat line.
  */
 @Composable
 fun CameraScreen(
@@ -68,6 +70,7 @@ fun CameraScreen(
     busy: Boolean,
     onShoot: () -> Unit,
     onPick: () -> Unit,
+    onReport: () -> Unit,
 ) {
     var stats by rememberSaveable { mutableStateOf(false) }
     val mosaic by pipeline.mosaic.collectAsState()
@@ -98,13 +101,16 @@ fun CameraScreen(
             coreMs = pipeline.coreMs.mean(now)
             val m = lastDrawn[0]
             if (++tick % 4 == 0 && m != null && fps > 0 && !pipeline.paused) {
+                val workMs = pipeline.workMs.mean(now)
                 Log.i(
                     PreviewPipeline.TAG,
                     "preview %dx%d: %.1f fps, core %.1f ms, work %.1f ms, %d Tessels, min patch area %d".format(
                         java.util.Locale.ROOT,
-                        m.width, m.height, fps, coreMs, pipeline.workMs.mean(now), m.tesselCount, pipeline.minPatchArea,
+                        m.width, m.height, fps, coreMs, workMs, m.tesselCount, pipeline.minPatchArea,
                     ),
                 )
+                // The same numbers for the diagnostic report's last minute.
+                Diagnostics.app.preview.add(fps, coreMs, workMs)
             }
         }
     }
@@ -126,7 +132,7 @@ fun CameraScreen(
         val previewHeight = minOf(maxWidth * 4 / 3, maxHeight - TOP_BAR - MIN_CONTROLS)
         Column(Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxWidth().height(TOP_BAR).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
-                LiveChip(chipText, live, { stats = !stats })
+                LiveChip(chipText, live, { stats = !stats }, onReport)
             }
             Box(
                 Modifier.fillMaxWidth().height(previewHeight).pointerInput(pipeline) {
