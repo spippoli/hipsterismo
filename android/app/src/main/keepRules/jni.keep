@@ -1,0 +1,7 @@
+# mosaic_jni.cpp builds every Mosaic through
+# GetMethodID("<init>", "(II[F[I[FJF)V"). Nothing in the Kotlin code calls that
+# constructor, so without this rule R8 empties the class (#88) and every Frame
+# would throw NoSuchMethodError. android/scripts/check-release-apk.sh checks it.
+-keep class io.github.spippoli.hipsterismo.Mosaic {
+    <init>(int, int, float[], int[], float[], long, float);
+}

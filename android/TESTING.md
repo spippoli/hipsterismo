@@ -88,6 +88,15 @@ adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb shell cat /sdcard/ui
 - [ ] **Photos:** after a few photos, `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/photos` is empty. Each JPEG is deleted once decoded, and the folder is emptied at every start.
 - [ ] **Shared:** after a Share, `adb shell am force-stop io.github.spippoli.hipsterismo.debug`, then start the app again (the launcher intent above). `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/` no longer lists `shared` (or lists it empty).
 
+## Release build (#105)
+
+Before a release, and after a change to the build types or the keep rules. Build it signed (CLAUDE.md, Release build), check it with `scripts/check-release-apk.sh` and install it with `adb install -r app/build/outputs/apk/release/app-release.apk`, next to the debug build. It is the package `io.github.spippoli.hipsterismo`, "Hipsterismo" in the launcher; in the commands above, drop `.debug`.
+
+- [ ] **Next to debug:** both icons are in the launcher, and `adb shell pm list packages hipsterismo` lists both packages.
+- [ ] **Preview:** the release app asks for the camera and shows the live Mosaic, with no crash (`adb logcat -s AndroidRuntime:E` stays empty, no `NoSuchMethodError` or `UnsatisfiedLinkError`), and the `hipsterismo` preview lines show the fps.
+- [ ] **Photos:** a shutter Photo and a gallery Photo each give a Result.
+- [ ] **Save and Share:** Save puts the PNG in `Pictures/Hipsterismo` and Open shows it; Share opens the chooser and the PNG arrives.
+
 ## Large screen (#102)
 
 On a screen of 600 dp or more (a tablet, an unfolded foldable), Android ignores the portrait lock. With no such device, use the `hipTab` emulator (see CLAUDE.md, Emulators); `adb emu rotate` turns the whole virtual device, sensors included (a forced `user_rotation` leaves the sensors behind, so the icons turn sideways).
