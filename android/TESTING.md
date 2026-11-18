@@ -91,6 +91,16 @@ adb shell uiautomator dump /sdcard/ui.xml >/dev/null && adb shell cat /sdcard/ui
 - [ ] **Italian:** back in Italian (`--locales it` or the system's), the UI is as before: "Scatta", "Galleria", "Cambia fotocamera", "0,5", Condividi, Salva, Scarta.
 - [ ] **Unchanged:** in both, Mosaic, Tessel, Min patch area, LIVE and px² read the same, the `preview` and `photo` logcat lines use a decimal dot, and the saved file is `hipsterismo_YYYYMMDD_HHMMSS.png`.
 
+## Diagnostic report (#106)
+
+Watch `adb logcat -s hipsterismo:I hipsterismo-photo:I hipsterismo-report:I` meanwhile: a debug build logs each report it shares under `hipsterismo-report`, line by line.
+
+- [ ] **Long-press and share:** after at least 60 s of live preview and five photos (shutter or gallery, each back to the camera with Discard), long-press the LIVE chip. The tap alone still toggles the stats. The share sheet opens, titled "Send the diagnostic report" ("Invia il report diagnostico"), with plain text and no file; send it to yourself (Gmail, a chat to yourself or Keep). The text starts with the "no personal data" line, then one `key: value` per line, in English with decimal dots also in Italian.
+- [ ] **Numbers match the logcat:** `preview.fps_median` is the median of the fps of the last 60 `preview …` lines, `core.mean_ms` and `work.mean_ms` their means; `photo.1` … `photo.5` are the last five `photo …` lines (oldest first) and `photos.median_ms` their median time; `camera.analysis_frame` matches the `analysis …` line; `core.hash_fingers` reads `0xe0d145733a499498 (golden)`; `app.adpf` reads yes after an `ADPF hint session` line; `camera.last_error` is the last `camera error` line, or none.
+- [ ] **Nothing personal:** no serial number, ANDROID_ID, account, location, file name or photo Uri anywhere in the text.
+- [ ] **Survives a force-stop:** `adb shell am force-stop io.github.spippoli.hipsterismo.debug`, start the app again, and long-press the chip at once. The five photos and their median are still there; the Preview part reads `n/a` (or covers only the seconds since the start).
+- [ ] **TalkBack:** on the LIVE chip, TalkBack offers "Share diagnostic report" ("Condividi il report diagnostico") as its long-press action.
+
 ## Cache cleared at startup
 
 - [ ] **Photos:** after a few photos, `adb shell run-as io.github.spippoli.hipsterismo.debug ls cache/photos` is empty. Each JPEG is deleted once decoded, and the folder is emptied at every start.

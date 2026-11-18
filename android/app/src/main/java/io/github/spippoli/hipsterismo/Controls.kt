@@ -18,6 +18,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -459,11 +460,18 @@ fun Chip(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
  * The LIVE chip: a red dot and the preview fps, or an amber dot while the
  * camera starts or the preview is paused. With stats (a tap toggles them)
  * it adds the core's ms per Frame and the Tessel count: the debug stats
- * overlay of #59.
+ * overlay of #59. A long-press shares the diagnostic report ([onLongPress],
+ * #106), also while the camera starts or the preview is paused.
  */
 @Composable
-fun LiveChip(text: String, live: Boolean, onTap: () -> Unit, modifier: Modifier = Modifier) {
-    Chip(modifier.clickable(enabled = live, onClickLabel = stringResource(R.string.a11y_statistics)) { onTap() }) {
+fun LiveChip(text: String, live: Boolean, onTap: () -> Unit, onLongPress: () -> Unit, modifier: Modifier = Modifier) {
+    Chip(
+        modifier.combinedClickable(
+            onClickLabel = stringResource(R.string.a11y_statistics),
+            onLongClickLabel = stringResource(R.string.a11y_report),
+            onLongClick = onLongPress,
+        ) { if (live) onTap() },
+    ) {
         Box(Modifier.size(6.dp).background(if (live) Color(0xFFFF5252) else Color(0xFFFFC107), CircleShape))
         BasicText(text, style = labelStyle(11f, Color.White))
     }

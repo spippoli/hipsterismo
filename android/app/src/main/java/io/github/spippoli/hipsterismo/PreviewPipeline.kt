@@ -431,6 +431,7 @@ class PreviewPipeline(private val context: Context) {
             reportWork(end - start)
             if (!loggedFrame) {
                 loggedFrame = true
+                Diagnostics.app.analysisFrame = "${image.width}x${image.height} -> ${transform.width}x${transform.height}"
                 Log.i(
                     TAG,
                     "analysis %dx%d, row stride %d, pixel stride %d, rotation %d, mirror %b -> Frame %dx%d".format(
@@ -447,11 +448,15 @@ class PreviewPipeline(private val context: Context) {
     // ADPF: a hint session for this thread, told the target and each Frame's
     // actual work time, so the scheduler keeps it on a core fast enough.
     private fun reportWork(nanos: Long) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            Diagnostics.app.adpf = false
+            return
+        }
         if (!hintTried) {
             hintTried = true
             val manager = context.getSystemService(PerformanceHintManager::class.java)
             hint = manager?.createHintSession(intArrayOf(Process.myTid()), TARGET_WORK_NANOS)
+            Diagnostics.app.adpf = hint != null
             Log.i(TAG, if (hint != null) "ADPF hint session, target ${TARGET_WORK_NANOS / 1_000_000} ms" else "no ADPF")
         }
         (hint as? PerformanceHintManager.Session)?.reportActualWorkDuration(nanos)

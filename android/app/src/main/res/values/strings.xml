@@ -32,11 +32,17 @@
     <string name="share_failed">Couldn\'t share the Mosaic</string>
     <string name="no_viewer">No app can open the image</string>
     <string name="photo_failed">Couldn\'t read the photo</string>
+    <!-- The diagnostic report (#106): its share sheet and its subject. The report itself is English. -->
+    <string name="report_chooser">Send the diagnostic report</string>
+    <string name="report_subject">Hipsterismo diagnostic report</string>
+    <string name="report_failed">Couldn\'t build the report</string>
     <!-- What TalkBack reads for the controls. -->
     <string name="a11y_shoot">Take photo</string>
     <string name="a11y_gallery">Gallery</string>
     <string name="a11y_switch_camera">Switch camera</string>
     <string name="a11y_statistics">Statistics</string>
+    <!-- The LIVE chip's long-press. -->
+    <string name="a11y_report">Share diagnostic report</string>
     <!-- A zoom chip, with its ratio ("1.4×"). -->
     <string name="a11y_zoom">Zoom %1$s</string>
     <!-- The lit zoom chip's state, with the current ratio ("1.4×"). -->
