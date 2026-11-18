@@ -18,6 +18,8 @@
     <string name="permission_body">Hipsterismo turns what the camera sees into a live Mosaic. Without the Camera permission it has nothing to show. Your pictures stay on the phone.</string>
     <string name="permission_ask">Allow camera</string>
     <string name="permission_settings">Open settings</string>
+    <string name="camera_error">Couldn\'t open the camera</string>
+    <string name="retry">Retry</string>
     <string name="result_title" translatable="false">Mosaic</string>
     <string name="back">Back</string>
     <string name="discard">Discard</string>
