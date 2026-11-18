@@ -1,0 +1,33 @@
+# On every push to master: the unsigned, minified release build (#108). It
+# catches R8 breakage (the JNI constructor's keep rule) long before a tag, and
+# it is the only job on the default branch, so it is the one that saves
+# setup-gradle's cache for the tag workflow to restore.
+name: Android release build
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-master-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/android-setup
+      - name: Tag rules
+        run: android/scripts/release-version-test.sh > /dev/null
+      - name: Unsigned assembleRelease
+        working-directory: android
+        run: ./gradlew assembleRelease
+      - name: Keep rule
+        working-directory: android
+        run: scripts/check-release-apk.sh app/build/outputs/apk/release/app-release-unsigned.apk
