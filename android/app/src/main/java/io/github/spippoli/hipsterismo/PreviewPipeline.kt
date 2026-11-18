@@ -16,6 +16,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState as XCameraState
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -31,6 +32,7 @@ import androidx.lifecycle.Observer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -51,6 +53,13 @@ import java.util.concurrent.Executors
  * A photo ([takePhoto], [processPhoto]) runs on the same thread, with the
  * preview [paused]: the thread whose hint keeps it on the X3 does the photo's
  * decode and core, and no analysis Frame competes with it.
+ *
+ * [status] says whether the camera works (#104). Getting the provider, the
+ * presence check and the bind are guarded, at start, on a switch and on
+ * [retry], and the bound camera's CameraX state is observed, so a camera
+ * that can't be opened or drops out later gives [CameraStatus.Failed]
+ * ([nextCameraStatus]) instead of a crash or a frozen preview. The last
+ * error stays in [LastCameraError.app].
  */
 class PreviewPipeline(private val context: Context) {
     private val _mosaic = MutableStateFlow<Mosaic?>(null)
@@ -143,6 +152,28 @@ class PreviewPipeline(private val context: Context) {
     private val _camera = MutableStateFlow(CameraState())
     val camera: StateFlow<CameraState> = _camera
 
+    private val _status = MutableStateFlow<CameraStatus>(CameraStatus.Opening)
+
+    /** Whether the camera works: the camera screen, or the camera-error screen. */
+    val status: StateFlow<CameraStatus> = _status
+
+    // On the main thread: the status after [event], the error kept for the report.
+    private fun report(event: CameraEvent) {
+        val before = _status.value
+        val after = LastCameraError.app.track(nextCameraStatus(before, event, System.currentTimeMillis()))
+        if (after == before) return
+        _status.value = after
+        if (after is CameraStatus.Failed) {
+            Log.w(TAG, "camera error: ${after.error.kind} ${after.error.message}")
+            // No stale Mosaic behind the error, and none to shoot once it is gone.
+            _mosaic.value = null
+        } else if (before is CameraStatus.Failed) {
+            Log.i(TAG, "camera back: $after")
+        }
+    }
+
+    private val stateObserver = Observer<XCameraState> { state -> report(cameraEvent(state)) }
+
     // Read by the analyzer's thread; set on the main thread before a bind.
     @Volatile
     private var mirror = false
@@ -186,39 +217,111 @@ class PreviewPipeline(private val context: Context) {
         displayManager.registerDisplayListener(displayListener, Handler(Looper.getMainLooper()))
         if (orientationListener.canDetectOrientation()) orientationListener.enable()
         analysis.setAnalyzer(executor, ::analyze)
-        val future = ProcessCameraProvider.getInstance(context)
         this.owner = owner
+        open()
+    }
+
+    // Gets the provider if there is none yet, checks which cameras exist and
+    // binds one; every step that can throw ends in [report]. Main thread.
+    private fun open() {
+        provider?.let {
+            bindChosen(it)
+            return
+        }
+        val future = try {
+            ProcessCameraProvider.getInstance(context)
+        } catch (e: Exception) {
+            failed("camera provider", e)
+            return
+        }
         future.addListener({
-            val cameras = future.get()
+            if (owner == null) return@addListener // stopped meanwhile
+            val cameras = try {
+                future.get()
+            } catch (e: Exception) {
+                failed("camera provider", e)
+                return@addListener
+            }
             provider = cameras
-            val back = cameras.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
-            val front = cameras.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
-            _camera.value = _camera.value.copy(canSwitch = back && front)
-            // The camera chosen before (the pipeline outlives a rotation), else the back one.
-            bind(if (back && front) _camera.value.front else !back)
+            bindChosen(cameras)
         }, context.mainExecutor)
     }
+
+    // The camera last asked for (the pipeline outlives a rotation), else the
+    // back one, else the front one; the error screen if there is neither.
+    private fun bindChosen(cameras: ProcessCameraProvider) {
+        val back: Boolean
+        val front: Boolean
+        try {
+            back = cameras.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+            front = cameras.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+        } catch (e: Exception) {
+            failed("camera check", e)
+            return
+        }
+        _camera.value = _camera.value.copy(canSwitch = back && front)
+        when (cameraToBind(back, front, preferFront)) {
+            Lens.FRONT -> bind(true)
+            Lens.BACK -> bind(false)
+            null -> {
+                unbind(cameras)
+                report(CameraEvent.NoCamera)
+            }
+        }
+    }
+
+    private fun failed(step: String, e: Exception) {
+        // The provider's future wraps the camera's own exception.
+        val cause = if (e is ExecutionException) e.cause ?: e else e
+        Log.w(TAG, "$step failed", cause)
+        report(CameraEvent.BindFailed(cause.javaClass.simpleName, cause.message))
+    }
+
+    // The camera last asked for; a retry binds it again.
+    private var preferFront = false
 
     /** Binds the front camera if [front], else the back one; CameraX starts it at 1×. Main thread. */
     private fun bind(front: Boolean) {
         val cameras = provider ?: return
         val owner = owner ?: return
         val selector = if (front) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
-        bound?.cameraInfo?.zoomState?.removeObserver(zoomObserver)
-        cameras.unbindAll()
+        unbind(cameras)
         mirror = front
         loggedFrame = false
-        val camera = cameras.bindToLifecycle(owner, selector, preview, analysis, capture)
+        val camera = try {
+            cameras.bindToLifecycle(owner, selector, preview, analysis, capture)
+        } catch (e: Exception) {
+            failed("camera bind", e)
+            return
+        }
         bound = camera
+        report(CameraEvent.Bound)
         Log.i(TAG, "capture bound at ${capture.resolutionInfo?.resolution}")
         requestedZoom = camera.cameraInfo.zoomState.value?.zoomRatio ?: 1f
         _camera.value = _camera.value.copy(front = front, zoom = requestedZoom)
         camera.cameraInfo.zoomState.observe(owner, zoomObserver)
+        camera.cameraInfo.cameraState.observe(owner, stateObserver)
+    }
+
+    private fun unbind(cameras: ProcessCameraProvider?) {
+        bound?.cameraInfo?.zoomState?.removeObserver(zoomObserver)
+        bound?.cameraInfo?.cameraState?.removeObserver(stateObserver)
+        bound = null
+        cameras?.unbindAll()
     }
 
     /** Switches between the back and the front camera, if the phone has both. Main thread. */
     fun switchCamera() {
-        if (_camera.value.canSwitch) bind(!_camera.value.front)
+        if (!_camera.value.canSwitch) return
+        preferFront = !_camera.value.front
+        bind(preferFront)
+    }
+
+    /** The camera-error screen's Retry: checks the cameras again and binds. Main thread. */
+    fun retry() {
+        if (owner == null) return
+        report(CameraEvent.Retry)
+        open()
     }
 
     /** Sets the zoom to [ratio], within the camera's range. Main thread. */
@@ -239,9 +342,8 @@ class PreviewPipeline(private val context: Context) {
     fun stop() {
         displayManager.unregisterDisplayListener(displayListener)
         orientationListener.disable()
-        bound?.cameraInfo?.zoomState?.removeObserver(zoomObserver)
-        bound = null
-        provider?.unbindAll()
+        unbind(provider)
+        owner = null
         analysis.clearAnalyzer()
         executor.execute {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) (hint as? PerformanceHintManager.Session)?.close()
@@ -356,6 +458,31 @@ class PreviewPipeline(private val context: Context) {
     }
 
     companion object {
+        /** CameraX's camera state as a [CameraEvent], its error code by name. */
+        fun cameraEvent(state: XCameraState): CameraEvent.StateChanged {
+            val type = when (state.type) {
+                XCameraState.Type.PENDING_OPEN -> CameraStateType.PENDING_OPEN
+                XCameraState.Type.OPENING -> CameraStateType.OPENING
+                XCameraState.Type.OPEN -> CameraStateType.OPEN
+                XCameraState.Type.CLOSING -> CameraStateType.CLOSING
+                XCameraState.Type.CLOSED -> CameraStateType.CLOSED
+            }
+            val error = state.error?.let {
+                val name = when (it.code) {
+                    XCameraState.ERROR_MAX_CAMERAS_IN_USE -> "MAX_CAMERAS_IN_USE"
+                    XCameraState.ERROR_CAMERA_IN_USE -> "CAMERA_IN_USE"
+                    XCameraState.ERROR_OTHER_RECOVERABLE_ERROR -> "OTHER_RECOVERABLE_ERROR"
+                    XCameraState.ERROR_STREAM_CONFIG -> "STREAM_CONFIG"
+                    XCameraState.ERROR_CAMERA_DISABLED -> "CAMERA_DISABLED"
+                    XCameraState.ERROR_CAMERA_FATAL_ERROR -> "CAMERA_FATAL_ERROR"
+                    XCameraState.ERROR_DO_NOT_DISTURB_MODE_ENABLED -> "DO_NOT_DISTURB_MODE_ENABLED"
+                    else -> "ERROR_${it.code}"
+                }
+                CameraStateError(name, it.type == XCameraState.ErrorType.CRITICAL)
+            }
+            return CameraEvent.StateChanged(type, error)
+        }
+
         const val TAG = "hipsterismo"
         val ANALYSIS_SIZE = Size(320, 240)
 

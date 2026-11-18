@@ -7,6 +7,8 @@
     <string name="permission_body">Hipsterismo trasforma l\'inquadratura della fotocamera in un Mosaic dal vivo. Senza il permesso Fotocamera non ha niente da mostrare. Le immagini restano sul telefono.</string>
     <string name="permission_ask">Consenti la fotocamera</string>
     <string name="permission_settings">Apri le impostazioni</string>
+    <string name="camera_error">Non riesco ad aprire la fotocamera</string>
+    <string name="retry">Riprova</string>
     <string name="back">Indietro</string>
     <string name="discard">Scarta</string>
     <string name="share">Condividi</string>

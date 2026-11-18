@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,9 @@ fun photoCache(context: Context) = File(context.cacheDir, "photos")
  * thread decodes it (capped at 2048, upright) and makes its Mosaic at the
  * slider's value of that moment. The result screen shows it until Scarta (or
  * back), which resumes the live preview.
+ *
+ * While the camera has failed ([PreviewPipeline.status]) the camera-error
+ * screen stands in for the camera screen; its gallery button works as usual.
  */
 @Composable
 fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
@@ -169,9 +173,13 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
         if (state is PhotoState.Result) backToLive()
     }
 
+    val camera by pipeline.status.collectAsState()
     when (val now = state) {
         is PhotoState.Result -> ExportingResult(now, ::backToLive)
-        else -> CameraScreen(
+        // The gallery still gives a Result without the camera; Discard comes back here.
+        else -> if (camera is CameraStatus.Failed) {
+            CameraErrorScreen(busy = now is PhotoState.Processing, onRetry = pipeline::retry, onPick = onPick)
+        } else CameraScreen(
             pipeline, previewView, index, { index = it },
             busy = now is PhotoState.Processing, onShoot = onShoot, onPick = onPick,
         )

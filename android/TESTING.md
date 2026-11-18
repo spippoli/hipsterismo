@@ -29,6 +29,14 @@ adb shell content query --uri content://media/external/images/media --projection
 - [ ] **Landscape:** rotate the phone both ways (90° and 270°), with auto-rotate on and off. The layout stays in portrait, as in the stock camera app; the gallery and switch glyphs and the zoom labels turn the short way to read upright, and back when the phone is upright again. The Mosaic keeps showing the world upright. The row, the camera and the zoom stay as they were.
 - [ ] **Background and resume:** Home, then back to the app (its icon, recents or the launcher intent above): the preview resumes, with the same slider.
 
+## Camera error (#104)
+
+Watch `adb logcat -s hipsterismo:I` meanwhile: each error logs `camera error: <kind> <message>`, and the recovery `camera back`.
+
+- [ ] **Camera taken:** put the app in split screen with an app whose camera runs in split screen (recents, the app's icon, Split screen). The stock Pixel camera app refuses split screen ("choose another app"), so use WhatsApp's camera (the camera icon in Chats), Telegram's attachment camera or Instagram's camera, and open it in the other half. Hipsterismo's half shows "Couldn't open the camera" ("Non riesco ad aprire la fotocamera") with Retry, not a frozen preview or a crash; the log reads `camera error: CAMERA_STATE … CAMERA_IN_USE`. Close the camera app, or tap Retry: the preview comes back, by itself once the camera is free or on Retry, and the LIVE chip counts again. Retry takes the camera back even while the other app still shows its camera, whose preview then freezes: Android gives the camera to the app the user touched last.
+- [ ] **Taken, then back:** open the stock camera app, then come back to Hipsterismo (recents or the launcher intent above). Either the preview resumes or the error screen shows; never a frozen preview or a crash. Retry brings the preview back once the camera is free.
+- [ ] **Gallery on the error screen:** with the error screen showing, tap the gallery button (bottom left, where the camera screen has it). Pick a photo: the ring spins, then its result screen. Discard goes back to the error screen (or the camera, if it came back meanwhile).
+
 ## Photo to Mosaic (#65)
 
 Watch the photo times with `adb logcat -s hipsterismo-photo:I`. Each photo logs one `photo camera|gallery WxH: N ms to the result (capture N, decode N, core N = N%, other N), …` line, timed from the shutter tap (or the picker's answer) to the result screen's first draw.

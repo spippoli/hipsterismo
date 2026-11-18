@@ -186,23 +186,55 @@ private val SIDE_BUTTON = 60.dp
  */
 @Composable
 fun PermissionScreen(canAsk: Boolean, onAsk: () -> Unit) {
+    MessageScreen(
+        stringResource(R.string.permission_title),
+        stringResource(R.string.permission_body),
+        stringResource(if (canAsk) R.string.permission_ask else R.string.permission_settings),
+        onAsk,
+    )
+}
+
+/**
+ * Shown instead of the camera screen while the camera can't be opened or has
+ * dropped out ([CameraStatus.Failed], #104): "Couldn't open the camera" and
+ * Retry, which binds again. The gallery button stays where the camera screen
+ * has it and works, since a gallery photo needs no camera; while [busy] (that
+ * photo is processed) its ring spins and Retry waits.
+ */
+@Composable
+fun CameraErrorScreen(busy: Boolean, onRetry: () -> Unit, onPick: () -> Unit) {
+    val angle by rememberIconAngle()
+    Box(Modifier.fillMaxSize()) {
+        MessageScreen(stringResource(R.string.camera_error), null, stringResource(R.string.retry), { if (!busy) onRetry() })
+        Box(
+            Modifier.align(Alignment.BottomStart).windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(start = 28.dp, bottom = 40.dp).size(SIDE_BUTTON),
+            contentAlignment = Alignment.Center,
+        ) {
+            GalleryThumb(!busy, busy, angle, onPick)
+        }
+    }
+}
+
+// A title, an optional body and one white pill button, centred on the dark panel.
+@Composable
+private fun MessageScreen(title: String, body: String?, button: String, onClick: () -> Unit) {
     Box(
         Modifier.fillMaxSize().background(PanelDark).windowInsetsPadding(WindowInsets.safeDrawing).padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            BasicText(stringResource(R.string.permission_title), style = labelStyle(20f).copy(textAlign = TextAlign.Center))
-            BasicText(stringResource(R.string.permission_body), style = labelStyle(14f, OnDark.copy(alpha = 0.8f)).copy(textAlign = TextAlign.Center))
+            BasicText(title, style = labelStyle(20f).copy(textAlign = TextAlign.Center))
+            if (body != null) {
+                BasicText(body, style = labelStyle(14f, OnDark.copy(alpha = 0.8f)).copy(textAlign = TextAlign.Center))
+            }
             Box(
                 Modifier.padding(top = 8.dp)
                     .background(Color.White, RoundedCornerShape(50))
-                    .clickable { onAsk() }
+                    .clickable { onClick() }
                     .padding(horizontal = 20.dp, vertical = 10.dp),
             ) {
-                BasicText(
-                    stringResource(if (canAsk) R.string.permission_ask else R.string.permission_settings),
-                    style = labelStyle(14f, Color(0xFF111111)),
-                )
+                BasicText(button, style = labelStyle(14f, Color(0xFF111111)))
             }
         }
     }
