@@ -67,6 +67,12 @@ android {
             optimization {
                 enable = true
             }
+            // The unstripped symbols of libhipsterismo.so go to
+            // outputs/native-debug-symbols/release/native-debug-symbols.zip,
+            // which the tag workflow attaches to the Release (#108).
+            ndk {
+                debugSymbolLevel = "FULL"
+            }
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
