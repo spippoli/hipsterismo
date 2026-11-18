@@ -1,0 +1,20 @@
+# The toolchain both Android workflows need on ubuntu-latest (#108): JDK 21,
+# the Gradle caches, and the SDK packages that build.gradle.kts pins. The image
+# has the NDK but only CMake 3.31.5 and 4.x, so sdkmanager adds 3.31.6; it
+# skips a package that is already there.
+name: Android setup
+description: JDK 21, Gradle caches, NDK r30 and CMake 3.31.6
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: '21'
+    - uses: gradle/actions/setup-gradle@v6
+    - name: SDK packages
+      shell: bash
+      run: |
+        (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+          "cmake;3.31.6" "ndk;30.0.16248370" > /dev/null
+        "$ANDROID_HOME/cmake/3.31.6/bin/cmake" --version | sed -n 1p
