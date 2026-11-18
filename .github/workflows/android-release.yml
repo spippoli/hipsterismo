@@ -18,6 +18,13 @@ on:
 permissions:
   contents: read
 
+# An explicit `shell: bash` runs with -eo pipefail; GitHub's implicit default
+# is `bash -e`, without pipefail, so a failing command piped into tee or grep
+# would pass.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   check:
     runs-on: ubuntu-latest
