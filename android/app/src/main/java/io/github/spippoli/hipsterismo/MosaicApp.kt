@@ -2,6 +2,7 @@ package io.github.spippoli.hipsterismo
 
 import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.SystemClock
@@ -23,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,6 +65,9 @@ data class PendingTiming(
         captureMs, decodeMs, mosaic.coreMs.toDouble(), mosaic.tesselCount, minPatchArea,
     )
 }
+
+/** The logcat tag under which a debug build logs each diagnostic report it shares. */
+const val REPORT_TAG = "hipsterismo-report"
 
 /** The shutter's JPEG goes here, in the cache; it is deleted once decoded, and the folder at startup. */
 fun photoCache(context: Context) = File(context.cacheDir, "photos")
@@ -168,6 +173,32 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
         }
     }
 
+    // The LIVE chip's long-press: the report is gathered off the UI thread
+    // (it hashes fingers.png), then shared as plain text (#106).
+    val scope = rememberCoroutineScope()
+    var reporting by remember { mutableStateOf(false) }
+    val subject = stringResource(R.string.report_subject)
+    val chooserTitle = stringResource(R.string.report_chooser)
+    val onReport = report@{
+        if (reporting) return@report
+        reporting = true
+        scope.launch {
+            try {
+                val report = withContext(Dispatchers.Default) { formatReport(DiagnosticCollector.collect(context)) }
+                // A debug build also logs it, to compare with the shared text.
+                if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+                    report.lineSequence().filter { it.isNotEmpty() }.forEach { Log.i(REPORT_TAG, it) }
+                }
+                context.startActivity(DiagnosticCollector.shareIntent(report, subject, chooserTitle))
+            } catch (e: Exception) {
+                Log.e(PreviewPipeline.TAG, "diagnostic report failed", e)
+                Toast.makeText(context, R.string.report_failed, Toast.LENGTH_SHORT).show()
+            } finally {
+                reporting = false
+            }
+        }
+    }
+
     // Back discards a result like Scarta; while a photo is processed it waits.
     BackHandler(enabled = state != PhotoState.Live) {
         if (state is PhotoState.Result) backToLive()
@@ -181,7 +212,7 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
             CameraErrorScreen(busy = now is PhotoState.Processing, onRetry = pipeline::retry, onPick = onPick)
         } else CameraScreen(
             pipeline, previewView, index, { index = it },
-            busy = now is PhotoState.Processing, onShoot = onShoot, onPick = onPick,
+            busy = now is PhotoState.Processing, onShoot = onShoot, onPick = onPick, onReport = onReport,
         )
     }
 }
@@ -243,7 +274,12 @@ private fun ExportingResult(result: PhotoState.Result, onDiscard: () -> Unit) {
     ResultScreen(
         mosaic, result.minPatchArea,
         onDiscard = onDiscard,
-        onFirstDraw = { Log.i(PHOTO_TAG, result.timing.complete(mosaic, result.minPatchArea, SystemClock.elapsedRealtimeNanos()).line()) },
+        onFirstDraw = {
+            val timing = result.timing.complete(mosaic, result.minPatchArea, SystemClock.elapsedRealtimeNanos())
+            Log.i(PHOTO_TAG, timing.line())
+            // The diagnostic report's last five photos, kept across the process.
+            scope.launch(Dispatchers.IO) { DiagnosticCollector.recordPhoto(context, timing) }
+        },
         saved = saved != null,
         busy = busy,
         onShare = {
