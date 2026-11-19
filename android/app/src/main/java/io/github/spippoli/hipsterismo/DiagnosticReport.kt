@@ -15,7 +15,11 @@ import java.util.Locale
 /** The adaptive hash of `fingers.png` at the default min patch area: the core tests' golden. */
 const val FINGERS_GOLDEN_HASH: Long = -0x1f2eba8cc5b66b68L // 0xe0d145733a499498
 
-/** The report's keys, in order; `photo.1` … `photo.5` follow `photos.median_ms`, one per photo kept. */
+/**
+ * The report's keys, in order; `photo.1` … `photo.5` follow `photos.median_ms`,
+ * one per photo kept, and `crash.trace.1` … and `exit.trace.1` … follow
+ * `crash.last` and `exit.last`, one per trace line (at most [TRACE_LINES]).
+ */
 val REPORT_KEYS = listOf(
     "report.time",
     "app.version_name",
@@ -41,6 +45,8 @@ val REPORT_KEYS = listOf(
     "photos.count",
     "photos.median_ms",
     "core.hash_fingers",
+    "crash.last",
+    "exit.last",
 )
 
 /** The report's first line. */
@@ -57,6 +63,8 @@ data class PreviewSummary(val fpsMedian: Double, val coreMs: Double, val workMs:
  * this session, [coreHash] if hashing `fingers.png` failed, [adpf] if no
  * Frame has asked for a hint session yet; [cpuMaxKhz] holds null for a CPU
  * whose frequency can't be read; [thermalStatus] is `PowerManager`'s.
+ * [crash] is null without a crash on file, [exit] without an exit Android
+ * recorded, and [exitsKnown] is false below API 30, which records none.
  */
 data class ReportData(
     val timeMillis: Long,
@@ -79,6 +87,9 @@ data class ReportData(
     val photos: List<PhotoTiming>,
     val coreHash: Long?,
     val cameraError: CameraError?,
+    val crash: CrashRecord? = null,
+    val exit: ExitRecord? = null,
+    val exitsKnown: Boolean = true,
 )
 
 private const val NA = "n/a"
@@ -148,6 +159,25 @@ fun formatReport(data: ReportData): String {
         "core.hash_fingers",
         data.coreHash?.let { "0x%016x (%s)".format(Locale.ROOT, it, if (it == FINGERS_GOLDEN_HASH) "golden" else "not golden") },
     )
+    val crash = data.crash
+    put(
+        "crash.last",
+        crash?.let { "${Instant.ofEpochMilli(it.timeMillis)}, app ${it.versionName} (${it.versionCode}), thread ${it.thread}" } ?: "none",
+    )
+    crash?.trace?.forEachIndexed { i, line -> put("crash.trace.${i + 1}", line) }
+    val exit = data.exit
+    put(
+        "exit.last",
+        when {
+            !data.exitsKnown -> NA
+            exit == null -> "none"
+            else -> "%s at %s, status %d, importance %d, pss %d kB, rss %d kB, description %s".format(
+                Locale.ROOT, exitReasonName(exit.reason), Instant.ofEpochMilli(exit.timeMillis), exit.status, exit.importance,
+                exit.pssKb, exit.rssKb, exit.description?.let(::scrubLine)?.ifBlank { null } ?: "none",
+            )
+        },
+    )
+    if (data.exitsKnown) exit?.trace?.forEachIndexed { i, line -> put("exit.trace.${i + 1}", line) }
     return buildString {
         appendLine(REPORT_HEADER)
         for ((key, value) in lines) appendLine("$key: $value")

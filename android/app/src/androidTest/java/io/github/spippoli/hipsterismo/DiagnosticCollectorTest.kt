@@ -23,8 +23,8 @@ import java.io.File
 class DiagnosticCollectorTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    private fun report(photos: File, diagnostics: Diagnostics = Diagnostics()): String {
-        val text = formatReport(DiagnosticCollector.collect(context, diagnostics, photos))
+    private fun report(photos: File, diagnostics: Diagnostics = Diagnostics(), crash: File = tempCrash()): String {
+        val text = formatReport(DiagnosticCollector.collect(context, diagnostics, photos, crash))
         text.lineSequence().forEach { Log.i("hipsterismo-perf", "report | $it") }
         return text
     }
@@ -34,6 +34,18 @@ class DiagnosticCollectorTest {
 
     private fun tempPhotos() = File(context.cacheDir, "diagnostic-test/photos.txt").apply {
         parentFile!!.deleteRecursively()
+    }
+
+    // Next to tempPhotos(), so its cleanup removes it too; empty until a test writes it.
+    private fun tempCrash() = File(context.cacheDir, "diagnostic-test/crash.txt").apply { delete() }
+
+    // A crash through the handler the app installs, handed on to a recorder
+    // instead of Android's handler, which would kill the test process.
+    private fun crashThroughTheHandler(file: File, error: Throwable): List<Throwable> {
+        val handed = mutableListOf<Throwable>()
+        val handler = DiagnosticCollector.crashHandler(context, file) { _, e -> handed += e }
+        handler.uncaughtException(Thread.currentThread(), error)
+        return handed
     }
 
     @Test
@@ -61,6 +73,28 @@ class DiagnosticCollectorTest {
     }
 
     @Test
+    fun aCrashThroughTheHandlerShowsInTheNextReport() {
+        // The Application put the handler in front of Android's.
+        assertTrue(Thread.getDefaultUncaughtExceptionHandler() is CrashHandler)
+        val photos = tempPhotos()
+        val crash = tempCrash()
+        val error = IllegalStateException("deliberate test crash")
+        assertEquals(listOf<Throwable>(error), crashThroughTheHandler(crash, error))
+        val text = report(photos, crash = crash)
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val last = valueOf(text, "crash.last")
+        assertTrue(last, last.endsWith(", app ${info.versionName} (${info.longVersionCode}), thread ${Thread.currentThread().name}"))
+        assertEquals("java.lang.IllegalStateException: deliberate test crash", valueOf(text, "crash.trace.1"))
+        assertTrue(valueOf(text, "crash.trace.2"), valueOf(text, "crash.trace.2").startsWith("at io.github.spippoli.hipsterismo.DiagnosticCollectorTest."))
+        val traceLines = text.lines().count { it.startsWith("crash.trace.") }
+        assertTrue("$traceLines trace lines", traceLines in 2..TRACE_LINES)
+        // API 30+ reads Android's last exit of this package; none is a value too.
+        val exit = valueOf(text, "exit.last")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) assertTrue(exit, exit != "n/a") else assertEquals("n/a", exit)
+        photos.parentFile!!.deleteRecursively()
+    }
+
+    @Test
     fun theHashIsFingersGolden() {
         assumeTrue("the ARM translator of this emulator changes the core's floats", Emulator.keepsGoldenHashes)
         val text = report(tempPhotos())
@@ -72,13 +106,20 @@ class DiagnosticCollectorTest {
         val text = report(tempPhotos())
         assertEquals("n/a", valueOf(text, "preview.fps_median"))
         assertEquals("0", valueOf(text, "photos.count"))
+        assertEquals("none", valueOf(text, "crash.last"))
     }
 
     @Test
     fun noForbiddenFieldAppears() {
         val photos = tempPhotos()
         PhotoHistory.record(photos, PhotoTiming(PhotoSource.GALLERY, 1536, 2048, 900.0, 0.0, 60.0, 480.0, 2300, 64))
-        val text = report(photos, Diagnostics().apply { preview.add(29.0, 22.0, 23.0) })
+        // A crash whose messages name a photo's file and Uri.
+        val crash = tempCrash()
+        val photo = File(context.cacheDir, "photos/1795036800000.jpg")
+        val cause = SecurityException("no access to content://media/external/images/media/42")
+        crashThroughTheHandler(crash, java.io.FileNotFoundException("$photo (No such file or directory)").apply { initCause(cause) })
+        val text = report(photos, Diagnostics().apply { preview.add(29.0, 22.0, 23.0) }, crash)
+        assertEquals("java.io.FileNotFoundException: <path> (No such file or directory)", valueOf(text, "crash.trace.1"))
         val lower = text.lowercase()
         val keys = text.lines().drop(1).filter { it.isNotEmpty() }.map { it.substringBefore(':').lowercase() }
         // The words of the keys ("device.security_patch" is device, security, patch).
