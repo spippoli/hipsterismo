@@ -1,0 +1,76 @@
+# The emulator matrix (#109), called by android-release.yml before the draft
+# Release. The debug app runs on x86_64 google_apis emulators, which run its
+# arm64 code through their ARM translator:
+#
+# - API 34-37, `full`: connectedDebugAndroidTest, core-on-device.sh, and
+#   launch-photo-check.sh (a launch plus one shutter Photo that must give a
+#   Mosaic without a crash).
+# - API 30-32, `launch`: a launch only (API 30's translator changes the core's
+#   floats, so the goldens don't hold there, #99; 31 and 32 are treated alike).
+#   API 33's x86_64 google_apis image has no arm64 translation: the install
+#   fails with INSTALL_FAILED_NO_MATCHING_ABIS, so it has no leg.
+#
+# No performance figures come from emulators. Each leg is
+# android/scripts/emulator-leg.sh, which also runs locally (CLAUDE.md).
+name: Android emulators
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# An explicit `shell: bash` runs with -eo pipefail (see android-release.yml).
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  emulators:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { api: '34', leg: full }
+          - { api: '35', leg: full }
+          - { api: '36', leg: full }
+          - { api: '37.0', leg: full }
+          - { api: '30', leg: launch }
+          - { api: '31', leg: launch }
+          - { api: '32', leg: launch }
+    name: emulator API ${{ matrix.api }} (${{ matrix.leg }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/android-setup
+      # The emulator needs /dev/kvm, which the runner's user can't open by
+      # default.
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules > /dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # The AVDs match the local hip36/hip30: the virtual-scene back camera,
+      # 4 GB of RAM. The leg is one script, since the action runs each line of
+      # `script:` on its own under sh.
+      - uses: reactivecircus/android-emulator-runner@v2.38.0
+        with:
+          api-level: ${{ matrix.api }}
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: >-
+            -no-window -gpu swiftshader_indirect -no-snapshot -noaudio
+            -no-boot-anim -camera-back virtualscene -camera-front emulated
+          script: android/scripts/emulator-leg.sh ${{ matrix.leg }}
+      - name: Test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emulator-${{ matrix.api }}-results
+          path: android/app/build/outputs/androidTest-results/
+          retention-days: 7
+          if-no-files-found: ignore
