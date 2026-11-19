@@ -34,6 +34,6 @@ When the phone passes through the developer's hands, add logcat and `android/scr
 
 | Model | SoC | API | Median fps | Median Photo | Hash | Verdict | Date | Issue |
 |---|---|---|---|---|---|---|---|---|
-| Google Pixel 8a | Tensor G3 | 37 | _to fill_ | _to fill_ | _to fill_ | _to fill_ | _to fill_ | _to fill_ |
+| Google Pixel 8a | Google Tensor G3 | 37 | 15.0 | 0.87 s | yes | supported, floors only¹ | 2026-11-19 | _to fill_ |
 
-The Pixel 8a's row waits for its first diagnostic report from the 5-minute check. Its earlier measurements over adb (#64, #76: 27–31 fps, Photos in 0.93–1.10 s) came from logcat, not from a report.
+¹ The Pixel 8a, from its report of 2026-11-19 (app 0.1, debug build, `thermal.status` `none (0)`, 60 `preview.seconds`, five `camera` Photos at 2048 px, `core.hash_fingers` `0xe0d145733a499498 (golden)`). The floors hold, the fps only just: `core.mean_ms` was 31.7 on a rich indoor scene (about 2 800 Tessels a Frame, twice `fingers.png`'s), so it is below the 27–31 fps of #64 and misses `TESTING.md`'s own "every second ≥ 15" (the lowest second read 11). It does **not** meet the check's conditions: the phone was on USB charging throughout, and the X3's `scaling_max_freq` dropped from 2.914 GHz before the Photos to 1.298 GHz after them (back at 2.914 GHz once it rested). Only steps 3, 10 and 11 were run, over adb; the camera denial, gallery, selfie, landscape, Save, Share and Home steps were not, so the verdict rests on the floors alone. `crash.last` is an `am crash` test from before the check and `exit.last` the reinstall; logcat showed no crash, OOM or LMK kill. TOTAL PSS after the Photos 200 MB, `VmHWM` 488 MB. Re-run it unplugged, with every step, to confirm.
