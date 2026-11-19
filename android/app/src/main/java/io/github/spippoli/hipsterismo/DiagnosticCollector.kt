@@ -1,6 +1,7 @@
 package io.github.spippoli.hipsterismo
 
 import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -10,6 +11,7 @@ import android.hardware.camera2.CameraManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
+import androidx.annotation.RequiresApi
 import java.io.File
 
 /**
@@ -23,6 +25,25 @@ import java.io.File
 object DiagnosticCollector {
     /** The last five photos' times, in the app's private files. */
     fun photosFile(context: Context) = File(context.filesDir, "diagnostics/photos.txt")
+
+    /** The last crash (#107), in the app's private files. */
+    fun crashFile(context: Context) = File(context.filesDir, "diagnostics/crash.txt")
+
+    /**
+     * The handler that writes a crash to [file] and then hands it on to
+     * [previous], with the app's version read now, not in the crash.
+     */
+    fun crashHandler(context: Context, file: File, previous: Thread.UncaughtExceptionHandler?): CrashHandler {
+        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        return CrashHandler(file, info.versionName ?: "", info.longVersionCode, previous)
+    }
+
+    /** Makes [crashHandler] the default uncaught-exception handler, in front of Android's; once per process. */
+    fun installCrashHandler(context: Context) {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        if (previous is CrashHandler) return
+        Thread.setDefaultUncaughtExceptionHandler(crashHandler(context, crashFile(context), previous))
+    }
 
     /** Adds a photo's times to [photosFile]; a failure is logged, never thrown. */
     fun recordPhoto(context: Context, timing: PhotoTiming) {
@@ -41,6 +62,7 @@ object DiagnosticCollector {
         context: Context,
         diagnostics: Diagnostics = Diagnostics.app,
         photos: File = photosFile(context),
+        crash: File = crashFile(context),
     ): ReportData {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         val memory = ActivityManager.MemoryInfo().also {
@@ -67,7 +89,62 @@ object DiagnosticCollector {
             photos = PhotoHistory.load(photos),
             coreHash = fingersHash(context),
             cameraError = LastCameraError.app.value,
+            crash = CrashFile.load(crash),
+            exit = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) lastExit(context) else null,
+            exitsKnown = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R,
         )
+    }
+
+    // The most recent exit Android recorded for this package, with its ANR
+    // trace (API 30+) or native tombstone (API 31+); null if there is none.
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun lastExit(context: Context): ExitRecord? = try {
+        val manager = context.getSystemService(ActivityManager::class.java)
+        manager.getHistoricalProcessExitReasons(context.packageName, 0, 1).firstOrNull()?.let { info ->
+            ExitRecord(
+                reason = info.reason,
+                timeMillis = info.timestamp,
+                status = info.status,
+                importance = info.importance,
+                pssKb = info.pss,
+                rssKb = info.rss,
+                description = info.description,
+                trace = exitTrace(info),
+            )
+        }
+    } catch (e: Exception) {
+        Log.w(PreviewPipeline.TAG, "couldn't read the last exit: $e")
+        null
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun exitTrace(info: ApplicationExitInfo): List<String> = try {
+        when (info.reason) {
+            EXIT_REASON_ANR -> info.traceInputStream?.bufferedReader()?.useLines(::anrExcerpt)
+            EXIT_REASON_CRASH_NATIVE -> info.traceInputStream?.use { stream ->
+                val bytes = readAtMost(stream, MAX_TOMBSTONE_BYTES)
+                tombstoneExcerpt(bytes) ?: listOf("unreadable tombstone, ${bytes.size} bytes")
+            }
+            else -> null
+        }.orEmpty()
+    } catch (e: Exception) {
+        listOf("unreadable trace: ${e.javaClass.simpleName}")
+    }
+
+    // A tombstone is tens or hundreds of kB, its threads before its memory
+    // maps and logs, so a cut one still parses (tombstoneExcerpt).
+    private const val MAX_TOMBSTONE_BYTES = 4 shl 20
+
+    // InputStream.readNBytes(int) is API 33.
+    private fun readAtMost(stream: java.io.InputStream, max: Int): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(64 * 1024)
+        while (out.size() < max) {
+            val n = stream.read(buffer, 0, minOf(buffer.size, max - out.size()))
+            if (n < 0) break
+            out.write(buffer, 0, n)
+        }
+        return out.toByteArray()
     }
 
     /** The share sheet with [report] as plain text. */
