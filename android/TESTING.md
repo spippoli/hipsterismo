@@ -1,6 +1,8 @@
 # Manual checks for the Android app
 
-There are no automated UI tests (#59). Run this list by hand on the Pixel 8a before merging a change to the UI, the camera or the threading, and put the results in the PR. The full run with the performance pass takes about 15 minutes. #67 is the acceptance run of the finished app.
+There are no automated UI tests (#59). Run this list by hand on the Pixel 8a, the reference phone, before merging a change to the UI, the camera or the threading, and put the results in the PR. The full run with the performance pass takes about 15 minutes. #67 is the acceptance run of the finished app.
+
+On any other phone, the test is the [5-minute check](INSTALL.md#5-minute-check) of the install instructions, run by its owner without adb; its report and verdict go to [DEVICES.md](DEVICES.md), with that file's floor (2.5 s per Photo, not the Pixel's 1.5 s). On the Pixel, the long-press item under Diagnostic report covers its report.
 
 ## Before you start
 
@@ -128,7 +130,7 @@ On a screen of 600 dp or more (a tablet, an unfolded foldable), Android ignores 
 
 ## Performance (#59)
 
-Pixel 8a, the default `min patch area` of 32 px², an ordinary indoor scene, the phone unlocked and not hot. A warm phone, for example one charging at 100%, caps the X3 and slows both the preview and the photos. Check before you start, and let the phone cool if either check fails:
+The Pixel 8a, the reference phone, with its own targets: other phones are judged against the floor in [DEVICES.md](DEVICES.md). The default `min patch area` of 32 px², an ordinary indoor scene, the phone unlocked and not hot. A warm phone, for example one charging at 100%, caps the X3 and slows both the preview and the photos. Check before you start, and let the phone cool if either check fails:
 
 ```sh
 adb shell dumpsys thermalservice | grep 'Thermal Status'                # 0
@@ -138,8 +140,8 @@ adb shell cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq    # the X3'
 | Measure | Threshold | Source |
 |---|---|---|
 | Preview fps | ≥ 15 sustained for 60 s, required; 30 is the target | the `preview` lines, one per second |
-| Photo, shutter to result | ≤ 1.5 s at 2048 on the long side | the `photo camera` lines |
-| Memory | no OOM or crash; TOTAL PSS under about 600 MB | `dumpsys meminfo`, with `VmHWM` recorded too |
+| Photo, shutter to result | ≤ 1.5 s at 2048 on the long side (the Pixel's target; the floor elsewhere is 2.5 s) | the `photo camera` lines |
+| Memory | no OOM or crash; TOTAL PSS under about 600 MB (#59); last measured 239 MB (#67) | `dumpsys meminfo`; `VmHWM` recorded, with no threshold |
 
 - [ ] **Preview fps:** with the stats shown, leave the camera on the scene for at least 60 s, then summarise the `preview WxH: N fps, core N ms, …` lines (they use a decimal dot whatever the language, `Locale.ROOT`; the `tr` keeps older logs working):
 
@@ -159,7 +161,7 @@ adb shell cat /sys/devices/system/cpu/cpu8/cpufreq/scaling_max_freq    # the X3'
   adb shell cat /proc/$(adb shell pidof io.github.spippoli.hipsterismo.debug)/status | grep VmHWM
   ```
 
-  TOTAL PSS, the measure #59 names, stays under about 600 MB. Record `VmHWM` too: it is the peak resident memory, and it reads higher than PSS because it counts shared and graphics pages in full.
+  The threshold is on TOTAL PSS, the measure #59 names: under about 600 MB; #67 measured 239 MB. Record `VmHWM` too, with no threshold: it is the peak resident memory, and it reads higher than PSS (679 MB in #67) because it counts shared and graphics pages in full. The about 460 MB of #55 is a third measure, the core's own peak RSS on a 2048 px Frame in a desktop benchmark; compare it with neither.
 - [ ] **No OOM or crash** during the whole run:
 
   ```sh
