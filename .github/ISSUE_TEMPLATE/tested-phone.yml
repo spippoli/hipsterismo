@@ -1,0 +1,53 @@
+name: Tested phone
+description: One phone that ran the 5-minute check of android/INSTALL.md, with its diagnostic report.
+title: "Phone: <manufacturer> <model>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One issue per phone. The steps are the [5-minute check](https://github.com/spippoli/hipsterismo/blob/master/android/INSTALL.md#5-minute-check) ([Prova in 5 minuti](https://github.com/spippoli/hipsterismo/blob/master/android/INSTALL.md#prova-in-5-minuti) in Italian). The verdict and the row in `android/DEVICES.md` follow its rules.
+  - type: input
+    id: phone
+    attributes:
+      label: Phone
+      description: Manufacturer and model, as the tester calls it.
+      placeholder: Samsung Galaxy A35
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: The Release installed (the report's `app.version_name`).
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: conditions
+    attributes:
+      label: Conditions
+      description: The floor is judged only on a check run like this.
+      options:
+        - label: The phone started cool, was not charging, and the room was lit normally.
+  - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic report
+      description: The whole text the long-press on LIVE shared, from its first line ("Hipsterismo diagnostic report. …") to the end.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: failed
+    attributes:
+      label: Failed steps
+      description: Every step of the check that didn't go as described, by number, with what happened instead. Write "none" if every step worked. Each failed step gets its own issue.
+      placeholder: |
+        5. The text in the selfie's Mosaic read the other way round from the preview.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything else the tester said, and the developer's verdict once judged (supported, supported with reservations, unsupported).
