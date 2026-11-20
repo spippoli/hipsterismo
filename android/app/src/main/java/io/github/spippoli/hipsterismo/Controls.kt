@@ -250,25 +250,30 @@ fun PatchAreaSelector(
 
 /**
  * The camera's shutter: a white disc inside a white ring, which shrinks
- * while pressed. Dimmed and inert unless [enabled].
+ * while pressed. Dimmed and inert unless [enabled]. While [busy] (a Photo is
+ * processed, #128) its ring spins, as [ProgressRing], and the disc stays dimmed.
  */
 @Composable
-fun Shutter(enabled: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier) {
+fun Shutter(enabled: Boolean, onShoot: () -> Unit, modifier: Modifier = Modifier, busy: Boolean = false) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val disc by animateFloatAsState(if (pressed) 0.84f else 1f, tween(120), label = "shutter")
     val shoot = stringResource(R.string.a11y_shoot)
+    val alpha = if (enabled) 1f else DISABLED_ALPHA
     Box(
         modifier
             .size(76.dp)
-            .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(CircleShape)
-            .border(3.dp, Color.White, CircleShape)
             .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClickLabel = shoot) { onShoot() }
             .semantics { contentDescription = shoot },
         contentAlignment = Alignment.Center,
     ) {
-        Box(Modifier.size(62.dp).scale(disc).background(Color.White, CircleShape))
+        if (busy) {
+            ProgressRing(Modifier.matchParentSize())
+        } else {
+            Box(Modifier.matchParentSize().alpha(alpha).border(3.dp, Color.White, CircleShape))
+        }
+        Box(Modifier.size(62.dp).scale(disc).alpha(alpha).background(Color.White, CircleShape))
     }
 }
 
@@ -295,7 +300,8 @@ private fun ProgressRing(modifier: Modifier = Modifier) {
 /**
  * The round gallery button left of the shutter, which opens the system photo
  * picker; its glyph turns by [angle]. While [busy] (a photo is processed) a
- * ring spins around it, as the camera's thumbnail does while it processes.
+ * ring spins around it: only on the camera error screen, which has no
+ * shutter; the camera screen spins the [Shutter]'s ring instead (#128).
  * Dimmed and inert unless [enabled].
  */
 @Composable

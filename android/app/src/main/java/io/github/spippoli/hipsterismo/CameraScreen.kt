@@ -55,7 +55,7 @@ import kotlinx.coroutines.delay
  *
  * The row's step [index] belongs to the caller. While [busy] (a photo is being
  * processed) the last Mosaic stays frozen and dimmed, the chip reads "in
- * pausa", a ring spins around the gallery button and every control is
+ * pausa", the shutter's ring spins (#128) and every control is
  * disabled, the pinch included.
  * [onShoot] and [onPick] are the shutter and the gallery thumbnail,
  * [onReport] the LIVE chip's long-press (the diagnostic report, #106).
@@ -168,9 +168,9 @@ fun CameraScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.size(SIDE_BUTTON), contentAlignment = Alignment.Center) {
-                        GalleryThumb(!busy, busy, angle, onPick)
+                        GalleryThumb(!busy, false, angle, onPick)
                     }
-                    Shutter(!busy, onShoot)
+                    Shutter(!busy, onShoot, busy = busy)
                     // Without a second camera, the empty box keeps the shutter centred.
                     Box(Modifier.size(SIDE_BUTTON), contentAlignment = Alignment.Center) {
                         if (camera.canSwitch) SwitchCameraButton(!busy, angle, pipeline::switchCamera)
