@@ -47,9 +47,8 @@ import androidx.compose.ui.unit.dp
  * opens: a photo's final Mosaic on black, fit without cropping, under a top
  * bar with back and the `min patch area` it was made with, and Condividi,
  * Salva and Scarta as glyphs over labels at the bottom. The screen stays in
- * portrait. The Mosaic stays turned by [mosaicAngle], how the phone was held
- * when the photo began, whatever the phone does afterwards; the glyphs turn
- * with the phone ([rememberIconAngle]). A pinch, a drag or a double tap magnifies the view
+ * portrait; held in landscape, the Mosaic and the glyphs turn
+ * ([rememberIconAngle]). A pinch, a drag or a double tap magnifies the view
  * only (#126, [magnified], [doubleTapped]). Scarta (and back) go
  * back to the camera without asking. Once [saved], Salva is a disabled
  * "Salvato" (#58). While [busy] (a PNG being made) Condividi and Salva ignore
@@ -61,7 +60,6 @@ import androidx.compose.ui.unit.dp
 fun ResultScreen(
     mosaic: Mosaic,
     minPatchArea: Int,
-    mosaicAngle: Float = 0f,
     onDiscard: () -> Unit,
     onFirstDraw: () -> Unit,
     saved: Boolean = false,
@@ -90,22 +88,22 @@ fun ResultScreen(
                 Spacer(Modifier.weight(1f))
                 BasicText(stringResource(R.string.area_px2, minPatchArea), Modifier.padding(end = 16.dp), style = labelStyle(12f, MetaGrey))
             }
-            // The Mosaic stays turned as the phone was held when the photo
-            // began (a landscape photo reads upright and takes the long
-            // side); only the icons follow the phone afterwards.
+            // Held in landscape, the Mosaic turns with the icons, so it reads
+            // upright and takes the long side of the screen.
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
-                val sideways = (mosaicAngle / 90f).roundToInt() % 2 != 0
+                val quarterTurns = (angle / 90f).roundToInt()
+                val sideways = quarterTurns % 2 != 0
                 // Only the view is magnified (#126): Save and Share still take
-                // the whole Mosaic.
-                var magnification by remember(mosaic) { mutableStateOf(Magnification.FIT) }
+                // the whole Mosaic. A turn of the phone goes back to fit.
+                var magnification by remember(mosaic, quarterTurns) { mutableStateOf(Magnification.FIT) }
                 MosaicCanvas(
                     mosaic,
                     Modifier
                         .requiredSize(if (sideways) maxHeight else maxWidth, if (sideways) maxWidth else maxHeight)
-                        .rotate(mosaicAngle)
+                        .rotate(angle)
                         // After the rotation, so the gestures come in the
                         // turned frame and a drag follows the finger.
-                        .pointerInput(mosaic, mosaicAngle) {
+                        .pointerInput(mosaic, quarterTurns) {
                             detectTapGestures(onDoubleTap = { tap ->
                                 magnification = doubleTapped(
                                     magnification, mosaic.width, mosaic.height,
@@ -113,7 +111,7 @@ fun ResultScreen(
                                 )
                             })
                         }
-                        .pointerInput(mosaic, mosaicAngle) {
+                        .pointerInput(mosaic, quarterTurns) {
                             detectTransformGestures { centroid, pan, zoom, _ ->
                                 magnification = magnified(
                                     magnification, mosaic.width, mosaic.height,

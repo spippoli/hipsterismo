@@ -1,6 +1,5 @@
 package io.github.spippoli.hipsterismo
 
-import kotlin.math.roundToInt
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.pm.ApplicationInfo
@@ -37,26 +36,19 @@ import java.time.LocalDateTime
 sealed interface PhotoState {
     data object Live : PhotoState
 
-    /**
-     * A photo from [source] is being taken or processed; [id] tells one photo
-     * from the next. [angle] is how the phone was held at the shutter tap or
-     * the picker's answer ([iconAngle]), which the Result keeps.
-     */
-    data class Processing(val id: Long, val source: PhotoSource, val angle: Float = 0f) : PhotoState
+    /** A photo from [source] is being taken or processed; [id] tells one photo from the next. */
+    data class Processing(val id: Long, val source: PhotoSource) : PhotoState
 
     /**
      * The final Mosaic of a photo, made at [minPatchArea] and never recomputed
      * (#57). [timing] is logged at its first draw on the result screen.
      * [dateTakenMillis] is the saved PNG's `DATE_TAKEN` ([mosaicDateTaken]).
-     * [angle] is the Processing's: the Mosaic stays turned by it, however the
-     * phone turns afterwards.
      */
     data class Result(
         val mosaic: Mosaic,
         val minPatchArea: Int,
         val timing: PendingTiming,
         val dateTakenMillis: Long,
-        val angle: Float = 0f,
     ) : PhotoState
 }
 
@@ -99,8 +91,6 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
     var index by rememberSaveable { mutableIntStateOf(MinPatchArea.defaultIndex) }
     var state by remember { mutableStateOf<PhotoState>(PhotoState.Live) }
     val main = context.mainExecutor
-    // How the phone is held, read when a photo begins: its Result stays turned by it.
-    val heldAngle by rememberIconAngle()
 
     fun backToLive() {
         state = PhotoState.Live
@@ -130,11 +120,8 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
             onDone = { mosaic, decodeMs ->
                 cleanup()
                 main.execute {
-                    val processing = state as? PhotoState.Processing
-                    if (processing?.id == id) {
-                        state = PhotoState.Result(
-                            mosaic, minPatchArea, timing.copy(decodeMs = decodeMs), dateTakenMillis, processing.angle,
-                        )
+                    if ((state as? PhotoState.Processing)?.id == id) {
+                        state = PhotoState.Result(mosaic, minPatchArea, timing.copy(decodeMs = decodeMs), dateTakenMillis)
                     }
                 }
             },
@@ -145,8 +132,7 @@ fun MosaicApp(pipeline: PreviewPipeline, previewView: PreviewView) {
     fun begin(source: PhotoSource): Long {
         val id = SystemClock.elapsedRealtimeNanos()
         pipeline.paused = true
-        // Rounded to a quarter turn, in case the icons are still turning.
-        state = PhotoState.Processing(id, source, (heldAngle / 90f).roundToInt() * 90f)
+        state = PhotoState.Processing(id, source)
         return id
     }
 
@@ -287,7 +273,6 @@ private fun ExportingResult(result: PhotoState.Result, onDiscard: () -> Unit) {
 
     ResultScreen(
         mosaic, result.minPatchArea,
-        mosaicAngle = result.angle,
         onDiscard = onDiscard,
         onFirstDraw = {
             val timing = result.timing.complete(mosaic, result.minPatchArea, SystemClock.elapsedRealtimeNanos())
