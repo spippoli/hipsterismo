@@ -10,15 +10,6 @@ Hipsterismo turns what the camera sees into a Mosaic of coloured triangles. It r
 
 ## Italiano
 
-### Il messaggio da inviare
-
-Per lo sviluppatore: copia questo testo in chat, con la versione al posto di X.Y.Z. Il primo link porta sempre all'ultima versione, quindi vale anche per gli aggiornamenti.
-
-```text
-Ciao! Ecco Hipsterismo X.Y.Z, l'app che trasforma la fotocamera in un mosaico di triangoli: https://github.com/spippoli/hipsterismo/releases/latest
-Come installarla e provarla in 5 minuti: https://github.com/spippoli/hipsterismo/blob/master/android/INSTALL.md
-```
-
 ### Installare
 
 1. **Scarica l'APK in Chrome.** Apri il link dell'ultima versione in Chrome. In fondo alla pagina, sotto "Assets", tocca `hipsterismo-X.Y.Z.apk` (non gli altri file). Se Chrome avvisa che il file può essere dannoso, tocca "Scarica comunque". Poi apri il file scaricato.
@@ -55,15 +46,6 @@ Insieme al report, scrivi allo sviluppatore i passi che non sono andati come des
 ---
 
 ## English
-
-### The message to send
-
-For the developer: paste this text into the chat, with the version in place of X.Y.Z. The first link always leads to the latest version, so it works for updates too.
-
-```text
-Hi! Here's Hipsterismo X.Y.Z, the app that turns the camera into a mosaic of triangles: https://github.com/spippoli/hipsterismo/releases/latest
-How to install it and try it in 5 minutes: https://github.com/spippoli/hipsterismo/blob/master/android/INSTALL.md#english
-```
 
 ### Installing
 
