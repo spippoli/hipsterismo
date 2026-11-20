@@ -2,10 +2,16 @@
 #
 # 1. check: the tag is strict vMAJOR.MINOR.PATCH (MINOR, PATCH < 100) and its
 #    commit is in master's history; otherwise the run fails before building.
-# 2. release (the `release` environment, deployable only from v* tags, holds
-#    the signing secrets): the core tests, the JVM tests, the signed
-#    assembleRelease, the keep-rule check and apksigner, then a draft Release
-#    with the APK, its SHA-256, R8's mapping and the native debug symbols.
+# 2. emulators (#109): the debug app on x86_64 google_apis emulators, which
+#    run the arm64 code through their ARM translator. API 34-37 run the
+#    instrumented tests, core-on-device.sh and a launch plus one shutter Photo;
+#    API 30-32 launch only. No performance figures come from them. The matrix
+#    is android-emulators.yml.
+# 3. release, only once every emulator leg passed (the `release` environment,
+#    deployable only from v* tags, holds the signing secrets): the core tests,
+#    the JVM tests, the signed assembleRelease, the keep-rule check and
+#    apksigner, then a draft Release with the APK, its SHA-256, R8's mapping
+#    and the native debug symbols.
 #
 # The draft is published by hand once the release APK passed the phone checks
 # of android/TESTING.md.
@@ -47,8 +53,14 @@ jobs:
           fi
           echo "$GITHUB_REF_NAME ($GITHUB_SHA) is in master's history"
 
-  release:
+  # The matrix lives in its own reusable workflow, so a branch can run it
+  # without a tag (see CLAUDE.md).
+  emulators:
     needs: check
+    uses: ./.github/workflows/android-emulators.yml
+
+  release:
+    needs: [check, emulators]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: release
