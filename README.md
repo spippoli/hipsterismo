@@ -15,6 +15,7 @@
 [![Android 10+](https://img.shields.io/badge/Android-10%2B%20·%20arm64-3DDC84?logo=android&logoColor=white)](android/INSTALL.md)
 [![Last commit](https://img.shields.io/github/last-commit/spippoli/hipsterismo)](https://github.com/spippoli/hipsterismo/commits/master)
 [![Open issues](https://img.shields.io/github/issues/spippoli/hipsterismo)](https://github.com/spippoli/hipsterismo/issues)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 <img src="docs/images/hero.png" alt="A hand on a table, and the same Frame as a Mosaic of flat-coloured triangles" width="100%">
 
@@ -22,7 +23,8 @@
 [Install guide](android/INSTALL.md) ·
 [Build the desktop app](#desktop-app-openframeworks) ·
 [How it works](#how-it-works) ·
-[Report a bug](https://github.com/spippoli/hipsterismo/issues/new)
+[Report a bug](https://github.com/spippoli/hipsterismo/issues/new) ·
+[Contribute](CONTRIBUTING.md)
 
 </div>
 
@@ -189,13 +191,7 @@ Each test command exits with the number of failures. CI runs the Android suite o
 
 ## Contributing
 
-Bugs and ideas go to [GitHub Issues](https://github.com/spippoli/hipsterismo/issues). Pull requests are welcome:
-
-- branch from `master` with a `feat/…`, `fix/…`, `docs/…` or `chore/…` name;
-- write [Conventional Commits](https://www.conventionalcommits.org/) (`feat(android): …`);
-- describe what changed, why and how you tested it, and link the issue (`Closes #N`).
-
-Changes to `src/mosaic/core/` must keep the golden hashes: run the core tests with GCC and Clang. [`CLAUDE.md`](CLAUDE.md) has the full architecture and build notes.
+Bug reports, phone test results and pull requests are welcome. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the workflow, which tests to run and the rules that keep the Mosaics deterministic.
 
 ## Acknowledgements
 
@@ -203,3 +199,9 @@ Changes to `src/mosaic/core/` must keep the golden hashes: run the core tests wi
 - [CDT](https://github.com/artem-ogre/CDT) by Artem Amirkhanov (MPL-2.0), vendored unmodified in [`src/mosaic/CDT/`](src/mosaic/CDT/)
 - [OpenCV](https://opencv.org/), whose sRGB→Lab table (Apache-2.0) the core reproduces exactly
 - P. Felzenszwalb and D. Huttenlocher, [*Efficient Graph-Based Image Segmentation*](https://cs.brown.edu/people/pfelzens/segment/), IJCV 2004
+
+## License
+
+hipsterismo is released under the [MIT License](LICENSE).
+
+Third-party code keeps its own licence: [CDT](src/mosaic/CDT/) is MPL-2.0 (its `predicates.h` BSD-3, `portable_nth_element.hpp` Apache-2.0 with LLVM exception), and the Lab table in `src/mosaic/core/AdaptiveLabTable.inc` is Apache-2.0 data from OpenCV. The ofxDelaunay addon isn't included; [`patches/`](patches/) holds only a fix to apply to your own checkout.
