@@ -3,6 +3,11 @@ package io.github.spippoli.hipsterismo
 import androidx.compose.foundation.background
 import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.requiredSize
@@ -43,7 +48,8 @@ import androidx.compose.ui.unit.dp
  * bar with back and the `min patch area` it was made with, and Condividi,
  * Salva and Scarta as glyphs over labels at the bottom. The screen stays in
  * portrait; held in landscape, the Mosaic and the glyphs turn
- * ([rememberIconAngle]). Scarta (and back) go
+ * ([rememberIconAngle]). A pinch, a drag or a double tap magnifies the view
+ * only (#126, [magnified], [doubleTapped]). Scarta (and back) go
  * back to the camera without asking. Once [saved], Salva is a disabled
  * "Salvato" (#58). While [busy] (a PNG being made) Condividi and Salva ignore
  * taps. With [snackbar] the mock's snackbar "Salvato in Immagini/Hipsterismo"
@@ -85,12 +91,36 @@ fun ResultScreen(
             // Held in landscape, the Mosaic turns with the icons, so it reads
             // upright and takes the long side of the screen.
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.Center) {
-                val sideways = (angle / 90f).roundToInt() % 2 != 0
+                val quarterTurns = (angle / 90f).roundToInt()
+                val sideways = quarterTurns % 2 != 0
+                // Only the view is magnified (#126): Save and Share still take
+                // the whole Mosaic. A turn of the phone goes back to fit.
+                var magnification by remember(mosaic, quarterTurns) { mutableStateOf(Magnification.FIT) }
                 MosaicCanvas(
                     mosaic,
                     Modifier
                         .requiredSize(if (sideways) maxHeight else maxWidth, if (sideways) maxWidth else maxHeight)
-                        .rotate(angle),
+                        .rotate(angle)
+                        // After the rotation, so the gestures come in the
+                        // turned frame and a drag follows the finger.
+                        .pointerInput(mosaic, quarterTurns) {
+                            detectTapGestures(onDoubleTap = { tap ->
+                                magnification = doubleTapped(
+                                    magnification, mosaic.width, mosaic.height,
+                                    size.width.toFloat(), size.height.toFloat(), tap.x, tap.y,
+                                )
+                            })
+                        }
+                        .pointerInput(mosaic, quarterTurns) {
+                            detectTransformGestures { centroid, pan, zoom, _ ->
+                                magnification = magnified(
+                                    magnification, mosaic.width, mosaic.height,
+                                    size.width.toFloat(), size.height.toFloat(),
+                                    centroid.x, centroid.y, zoom, pan.x, pan.y,
+                                )
+                            }
+                        },
+                    magnification = magnification,
                     onDrawn = onDrawn,
                 )
             }

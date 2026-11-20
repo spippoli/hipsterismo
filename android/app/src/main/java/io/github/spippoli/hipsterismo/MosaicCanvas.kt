@@ -17,7 +17,8 @@ import androidx.compose.ui.graphics.nativeCanvas
 /**
  * Draws [mosaic] whole, centred inside the space with its aspect ratio kept
  * (the live preview and the result alike, never cropped). With [dim] it is darkened
- * and desaturated, the frozen preview while a photo is processed. [onDrawn]
+ * and desaturated, the frozen preview while a photo is processed. The
+ * Result's [magnification] (#126) is applied on top of the fit. [onDrawn]
  * runs after each draw, for the fps meter.
  */
 @Composable
@@ -25,6 +26,7 @@ fun MosaicCanvas(
     mosaic: Mosaic,
     modifier: Modifier = Modifier,
     dim: Boolean = false,
+    magnification: Magnification = Magnification.FIT,
     onDrawn: (Mosaic) -> Unit = {},
 ) {
     // drawVertices() modulates the vertex colours with the paint's, which
@@ -33,9 +35,13 @@ fun MosaicCanvas(
     Canvas(modifier) {
         paint.colorFilter = if (dim) DIMMED else null
         val place = placement(mosaic.width, mosaic.height, size.width, size.height)
-        translate(place.dx, place.dy) {
-            scale(place.scale, pivot = Offset.Zero) {
-                drawIntoCanvas { it.nativeCanvas.drawMosaic(mosaic, paint) }
+        translate(magnification.tx, magnification.ty) {
+            scale(magnification.scale, pivot = Offset.Zero) {
+                translate(place.dx, place.dy) {
+                    scale(place.scale, pivot = Offset.Zero) {
+                        drawIntoCanvas { it.nativeCanvas.drawMosaic(mosaic, paint) }
+                    }
+                }
             }
         }
         onDrawn(mosaic)
