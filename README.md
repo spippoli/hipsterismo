@@ -17,7 +17,7 @@
 [![Open issues](https://img.shields.io/github/issues/spippoli/hipsterismo)](https://github.com/spippoli/hipsterismo/issues)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-<img src="docs/images/hero.png" alt="A hand on a table, and the same Frame as a Mosaic of flat-coloured triangles" width="100%">
+<img src="docs/images/hero.png" alt="A hand on a table, and the same Frame as an adaptive Mosaic of flat-coloured triangles at min patch area 128" width="100%">
 
 [**Download the Android app**](https://github.com/spippoli/hipsterismo/releases/latest) ·
 [Install guide](android/INSTALL.md) ·
