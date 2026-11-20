@@ -163,3 +163,73 @@ fun selectorOffset(widths: List<Float>, gap: Float, index: Int, containerWidth: 
 /** The row's index after a horizontal drag of [dragPx] from [start]: one step per [stepPx], leftwards to larger steps. */
 fun swipedIndex(start: Int, dragPx: Float, stepPx: Float, count: Int): Int =
     (start - Math.round(dragPx / stepPx)).coerceIn(0, count - 1)
+
+/**
+ * The Result's magnification (#126): only the view is magnified, never the
+ * Mosaic. A point the fit [placement] puts at q in the view is drawn at
+ * q · [scale] + ([tx], [ty]). [FIT] is the fit itself.
+ */
+data class Magnification(val scale: Float, val tx: Float, val ty: Float) {
+    companion object {
+        val FIT = Magnification(1f, 0f, 0f)
+        const val MAX_SCALE = 8f
+        const val DOUBLE_TAP_SCALE = 3f
+    }
+}
+
+/**
+ * [m] after a gesture on a [frameWidth] × [frameHeight] Mosaic fitted in a
+ * [viewWidth] × [viewHeight] view: magnified by [factor] around the view
+ * point ([pivotX], [pivotY]), then moved by ([panX], [panY]); the scale is
+ * clamped to 1…[Magnification.MAX_SCALE] and the offset by [clampedMagnification].
+ */
+fun magnified(
+    m: Magnification, frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: Float,
+    pivotX: Float, pivotY: Float, factor: Float, panX: Float, panY: Float,
+): Magnification {
+    val scale = (m.scale * factor).coerceIn(1f, Magnification.MAX_SCALE)
+    val f = scale / m.scale
+    val moved = Magnification(scale, m.tx * f + pivotX * (1 - f) + panX, m.ty * f + pivotY * (1 - f) + panY)
+    return clampedMagnification(moved, frameWidth, frameHeight, viewWidth, viewHeight)
+}
+
+/**
+ * A double tap at view point ([tapX], [tapY]): from fit to
+ * [Magnification.DOUBLE_TAP_SCALE] with the tapped point of the Mosaic moved
+ * to the view's centre (as near as the edges allow), and from any
+ * magnification back to [Magnification.FIT].
+ */
+fun doubleTapped(
+    m: Magnification, frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: Float,
+    tapX: Float, tapY: Float,
+): Magnification {
+    if (m.scale > 1f) return Magnification.FIT
+    // Undo the current offset to find the fit point under the tap.
+    val qx = (tapX - m.tx) / m.scale
+    val qy = (tapY - m.ty) / m.scale
+    val s = Magnification.DOUBLE_TAP_SCALE
+    val centred = Magnification(s, viewWidth / 2 - qx * s, viewHeight / 2 - qy * s)
+    return clampedMagnification(centred, frameWidth, frameHeight, viewWidth, viewHeight)
+}
+
+/**
+ * [m] with its offset kept inside the view: along an axis where the
+ * magnified Mosaic is at least as large as the view, its edges never come
+ * away from the view's; along one where it is smaller, it is centred.
+ */
+fun clampedMagnification(
+    m: Magnification, frameWidth: Int, frameHeight: Int, viewWidth: Float, viewHeight: Float,
+): Magnification {
+    val place = placement(frameWidth, frameHeight, viewWidth, viewHeight)
+    fun axis(t: Float, fitStart: Float, fitSize: Float, view: Float): Float {
+        val size = fitSize * m.scale
+        val start = fitStart * m.scale + t
+        val clamped = if (size >= view) start.coerceIn(view - size, 0f) else (view - size) / 2
+        return t + (clamped - start)
+    }
+    return Magnification(
+        m.scale,
+        axis(m.tx, place.dx, frameWidth * place.scale, viewWidth),
+        axis(m.ty, place.dy, frameHeight * place.scale, viewHeight),
+    )
+}
